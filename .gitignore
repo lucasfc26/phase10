@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Vite
+.vite/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Database (SQLite local)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing & coverage
+coverage/
+.nyc_output/
+
+# IDE & editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Cursor
+.cursor/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
