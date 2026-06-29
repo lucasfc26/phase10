@@ -1,4 +1,4 @@
-import { Card, CardColor, PhaseType, Player, LaidDownPhase, STANDARD_PHASES } from '../common/game.types';
+import { Card, CardColor, PhaseType, Player, LaidDownPhase, STANDARD_PHASES } from './types';
 
 // Helper to generate a unique ID
 export const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -59,6 +59,48 @@ export function shuffleDeck(deck: Card[]): Card[] {
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
+}
+
+/** Advance turn after a discard, skipping any players marked with isSkipped. */
+export function advanceToNextPlayer(
+  players: Player[],
+  currentTurnIndex: number,
+): { players: Player[]; currentTurnIndex: number; skippedPlayers: Player[] } {
+  const updatedPlayers = players.map((p) => ({ ...p }));
+  const skippedPlayers: Player[] = [];
+  let nextIndex = (currentTurnIndex + 1) % updatedPlayers.length;
+  let safety = 0;
+
+  while (updatedPlayers[nextIndex]?.isSkipped && safety < updatedPlayers.length) {
+    skippedPlayers.push({ ...updatedPlayers[nextIndex] });
+    updatedPlayers[nextIndex] = { ...updatedPlayers[nextIndex], isSkipped: false };
+    nextIndex = (nextIndex + 1) % updatedPlayers.length;
+    safety++;
+  }
+
+  return { players: updatedPlayers, currentTurnIndex: nextIndex, skippedPlayers };
+}
+
+/** If the active player is marked skipped, consume the skip and advance. */
+export function ensureActivePlayerNotSkipped(
+  players: Player[],
+  currentTurnIndex: number,
+): { players: Player[]; currentTurnIndex: number; skippedPlayers: Player[] } {
+  const active = players[currentTurnIndex];
+  if (!active?.isSkipped) {
+    return { players: players.map((p) => ({ ...p })), currentTurnIndex, skippedPlayers: [] };
+  }
+
+  const updatedPlayers = players.map((p) => ({ ...p }));
+  const skippedPlayers: Player[] = [{ ...active }];
+  updatedPlayers[currentTurnIndex] = { ...active, isSkipped: false };
+
+  const advanced = advanceToNextPlayer(updatedPlayers, currentTurnIndex);
+  return {
+    players: advanced.players,
+    currentTurnIndex: advanced.currentTurnIndex,
+    skippedPlayers: [...skippedPlayers, ...advanced.skippedPlayers],
+  };
 }
 
 // Calculate the points remaining in a hand

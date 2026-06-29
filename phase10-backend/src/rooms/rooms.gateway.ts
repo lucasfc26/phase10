@@ -101,6 +101,15 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     gameRoom = result.gameRoom;
     await this.roomsService.saveGameRoom(roomId, gameRoom);
 
+    for (const skipLog of result.skipLogs || []) {
+      this.server.to(roomId).emit('game:log', {
+        id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
+        message: skipLog,
+        type: 'warning',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    }
+
     if (result.log) {
       this.server.to(roomId).emit('game:log', {
         id: Date.now().toString(),

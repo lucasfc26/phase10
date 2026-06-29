@@ -7,7 +7,9 @@ import {
   STANDARD_PHASES,
 } from '../common/game.types';
 import {
+  advanceToNextPlayer,
   calculateHandScore,
+  ensureActivePlayerNotSkipped,
   evaluateRoundEnd,
   generateDeck,
   generateId,
@@ -120,7 +122,7 @@ export class GameService {
     gameRoom: GameRoom,
     memberId: string,
     action: GameActionDto,
-  ): { gameRoom: GameRoom; log?: string; logType?: string } {
+  ): { gameRoom: GameRoom; log?: string; logType?: string; skipLogs?: string[] } {
     if (action.type === 'next_round') {
       if (gameRoom.status !== 'round_end') {
         throw new BadRequestException('A rodada ainda não terminou.');
@@ -137,6 +139,16 @@ export class GameService {
       throw new BadRequestException('A partida não está em andamento.');
     }
 
+    const resolved = ensureActivePlayerNotSkipped(gameRoom.players, gameRoom.currentTurnIndex);
+    const skipLogs = resolved.skippedPlayers.map(
+      (p) => `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`,
+    );
+    gameRoom = {
+      ...gameRoom,
+      players: resolved.players,
+      currentTurnIndex: resolved.currentTurnIndex,
+    };
+
     const active = gameRoom.players[gameRoom.currentTurnIndex];
     if (!active || active.id !== memberId) {
       throw new ForbiddenException('Não é o seu turno.');
@@ -147,17 +159,22 @@ export class GameService {
 
     switch (action.type) {
       case 'draw':
-        return this.processDraw(gameRoom, action.source || 'draw');
-      case 'discard':
+        return { ...this.processDraw(gameRoom, action.source || 'draw'), skipLogs };
+      case 'discard': {
         if (!action.cardId) throw new BadRequestException('Carta não informada.');
-        return this.processDiscard(gameRoom, action.cardId, action.skipPlayerId ?? null);
+        const discardResult = this.processDiscard(gameRoom, action.cardId, action.skipPlayerId ?? null);
+        return {
+          ...discardResult,
+          skipLogs: [...skipLogs, ...(discardResult.skipLogs || [])],
+        };
+      }
       case 'lay_down':
-        return this.processLayDown(gameRoom, action.group1CardIds || [], action.group2CardIds || []);
+        return { ...this.processLayDown(gameRoom, action.group1CardIds || [], action.group2CardIds || []), skipLogs };
       case 'hit':
         if (!action.cardId || !action.targetPlayerId || action.groupIndex === undefined) {
           throw new BadRequestException('Dados de hit incompletos.');
         }
-        return this.processHit(gameRoom, action.cardId, action.targetPlayerId, action.groupIndex);
+        return { ...this.processHit(gameRoom, action.cardId, action.targetPlayerId, action.groupIndex), skipLogs };
       default:
         throw new BadRequestException('Ação inválida.');
     }
@@ -195,7 +212,11 @@ export class GameService {
     };
   }
 
-  private processDiscard(gameRoom: GameRoom, cardId: string, skipPlayerId: string | null) {
+  private processDiscard(
+    gameRoom: GameRoom,
+    cardId: string,
+    skipPlayerId: string | null,
+  ): { gameRoom: GameRoom; log: string; logType: string; skipLogs?: string[] } {
     const players = gameRoom.players.map((p, idx) => {
       if (idx === gameRoom.currentTurnIndex) {
         const card = p.cards.find((c) => c.id === cardId);
@@ -210,6 +231,9 @@ export class GameService {
 
     const card = gameRoom.players[gameRoom.currentTurnIndex].cards.find((c) => c.id === cardId);
     if (!card) throw new BadRequestException('Carta inválida.');
+    if (card.type === 'skip' && !skipPlayerId) {
+      throw new BadRequestException('Selecione um jogador para pular.');
+    }
 
     let next: GameRoom = {
       ...gameRoom,
@@ -233,11 +257,22 @@ export class GameService {
       };
     }
 
-    next = this.advanceTurn(next);
+    const advanced = advanceToNextPlayer(next.players, next.currentTurnIndex);
+    next = {
+      ...next,
+      players: advanced.players,
+      currentTurnIndex: advanced.currentTurnIndex,
+    };
+
+    const skipMessages = advanced.skippedPlayers.map(
+      (p) => `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`,
+    );
+
     return {
       gameRoom: next,
       log: `${players[gameRoom.currentTurnIndex].name} descartou uma carta.`,
       logType: 'action',
+      skipLogs: skipMessages,
     };
   }
 
@@ -377,20 +412,6 @@ export class GameService {
     }
 
     return { ...gameRoom, status, players, winnerId };
-  }
-
-  private advanceTurn(gameRoom: GameRoom): GameRoom {
-    const players = [...gameRoom.players];
-    let nextIndex = (gameRoom.currentTurnIndex + 1) % players.length;
-    let safety = 0;
-
-    while (players[nextIndex].isSkipped && safety < players.length) {
-      players[nextIndex] = { ...players[nextIndex], isSkipped: false };
-      nextIndex = (nextIndex + 1) % players.length;
-      safety++;
-    }
-
-    return { ...gameRoom, players, currentTurnIndex: nextIndex };
   }
 
   serialize(gameRoom: GameRoom): string {
