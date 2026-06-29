@@ -103,6 +103,7 @@ export class GameService {
       laidDownPhases: [],
       currentTurnIndex: 0,
       hasDrawnThisTurn: false,
+      currentTurnStartedAt: Date.now(),
     };
   }
 
@@ -130,18 +131,7 @@ export class GameService {
     action: GameActionDto,
   ): { gameRoom: GameRoom; log?: string; logType?: string; skipLogs?: string[] } {
     if (action.type === 'next_round') {
-      if (gameRoom.status !== 'round_end') {
-        throw new BadRequestException('A rodada ainda não terminou.');
-      }
-      if (memberId !== gameRoom.hostId) {
-        throw new ForbiddenException('Apenas o host pode iniciar a próxima rodada.');
-      }
-      const next = {
-        ...gameRoom,
-        status: 'playing' as const,
-        roundNumber: gameRoom.roundNumber + 1,
-      };
-      return { gameRoom: this.startNewRound(next), log: `--- Rodada ${next.roundNumber} Iniciando ---`, logType: 'phase' };
+      throw new BadRequestException('Use o endpoint de próxima rodada do servidor.');
     }
 
     if (gameRoom.status !== 'playing') {
@@ -295,6 +285,51 @@ export class GameService {
     return { gameRoom: state, logs };
   }
 
+  /** Pula o turno de um bot que ficou travado por mais de 1 minuto. */
+  skipStuckBotTurn(gameRoom: GameRoom): {
+    gameRoom: GameRoom;
+    log: string;
+    logType: string;
+    skipLogs?: string[];
+  } {
+    if (gameRoom.status !== 'playing') {
+      return { gameRoom, log: '', logType: 'warning' };
+    }
+
+    const resolved = ensureActivePlayerNotSkipped(gameRoom.players, gameRoom.currentTurnIndex);
+    let state: GameRoom = {
+      ...gameRoom,
+      players: resolved.players,
+      currentTurnIndex: resolved.currentTurnIndex,
+    };
+
+    const bot = state.players[state.currentTurnIndex];
+    if (!bot?.isBot) {
+      return { gameRoom: state, log: '', logType: 'warning' };
+    }
+
+    const advanced = advanceToNextPlayer(state.players, state.currentTurnIndex);
+    const next: GameRoom = {
+      ...state,
+      players: advanced.players,
+      currentTurnIndex: advanced.currentTurnIndex,
+      hasDrawnThisTurn: false,
+      currentTurnStartedAt: Date.now(),
+    };
+
+    const skipMessages = [
+      ...resolved.skippedPlayers.map((p) => `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`),
+      ...advanced.skippedPlayers.map((p) => `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`),
+    ];
+
+    return {
+      gameRoom: next,
+      log: `⚠️ ${bot.avatar} ${bot.name} ficou inativo — turno pulado.`,
+      logType: 'warning',
+      skipLogs: skipMessages,
+    };
+  }
+
   private processDraw(gameRoom: GameRoom, source: 'draw' | 'discard'): { gameRoom: GameRoom; log: string } {
     if (gameRoom.hasDrawnThisTurn) {
       throw new BadRequestException('Você já comprou uma carta neste turno.');
@@ -382,6 +417,7 @@ export class GameService {
       players: advanced.players,
       currentTurnIndex: advanced.currentTurnIndex,
       hasDrawnThisTurn: false,
+      currentTurnStartedAt: Date.now(),
     };
 
     const skipMessages = advanced.skippedPlayers.map(
@@ -569,6 +605,9 @@ export class GameService {
     const room = JSON.parse(json) as GameRoom;
     if (room.hasDrawnThisTurn === undefined) {
       room.hasDrawnThisTurn = false;
+    }
+    if (!room.currentTurnStartedAt) {
+      room.currentTurnStartedAt = Date.now();
     }
     return room;
   }

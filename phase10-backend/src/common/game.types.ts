@@ -81,6 +81,7 @@ export interface GameRoom {
   roundNumber: number;
   winnerId: string | null;
   hasDrawnThisTurn: boolean;
+  currentTurnStartedAt?: number;
   settings: {
     gameMode: 'bots' | 'pass_and_play' | 'online'; // Added 'online'
     botDelay: number; // milliseconds

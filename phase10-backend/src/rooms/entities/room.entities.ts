@@ -94,6 +94,9 @@ export class RoomMember {
   @Column({ default: true })
   isConnected!: boolean;
 
+  @Column({ default: false })
+  waitingForNextRound!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

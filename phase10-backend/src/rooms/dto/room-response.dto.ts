@@ -15,6 +15,7 @@ export class RoomSessionDto {
   memberId!: string;
   sessionToken!: string;
   isHost!: boolean;
+  waitingForNextRound?: boolean;
 }
 
 export class LobbyPlayerDto {
@@ -25,6 +26,7 @@ export class LobbyPlayerDto {
   isBot!: boolean;
   isConnected!: boolean;
   seatIndex!: number;
+  waitingForNextRound?: boolean;
 }
 
 export class LobbyStateDto {

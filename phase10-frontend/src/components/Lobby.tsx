@@ -73,6 +73,8 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
   const [lobbyPlayers, setLobbyPlayers] = useState<Player[]>([]);
   const [roomCode, setRoomCode] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [roomStatus, setRoomStatus] = useState<string>('lobby');
+  const [isWaitingForRound, setIsWaitingForRound] = useState(false);
 
   // Auto-generate random name/profile info initially
   useEffect(() => {
@@ -145,12 +147,18 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
 
         setOnlineSession(result.session);
         setRoomCode(result.lobby.code);
+        setMaxPlayers(result.lobby.maxPlayers);
+        setRoomStatus(result.lobby.status);
         setAllowBotsToggle(result.lobby.allowBots);
         setLobbyPlayers(mapLobbyPlayersToGame(result.lobby.players));
+        const joinedMidGame = result.session.waitingForNextRound ?? result.lobby.status !== 'lobby';
+        setIsWaitingForRound(joinedMidGame);
         setStatusMessage(
           isOnlineRoleHost
             ? 'Sala criada! Aguardando jogadores se conectarem...'
-            : `Conectado à sala ${result.lobby.code}!`,
+            : joinedMidGame
+              ? `Conectado à sala ${result.lobby.code}! Partida em andamento — aguarde a próxima rodada (você começará na Fase 1).`
+              : `Conectado à sala ${result.lobby.code}!`,
         );
         setStep('waiting_room');
       } catch (err) {
@@ -275,11 +283,18 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
     connectOnlineSocket(onlineSession.sessionToken, {
       onLobbyUpdate: (lobby) => {
         setRoomCode(lobby.code);
+        setMaxPlayers(lobby.maxPlayers);
+        setRoomStatus(lobby.status);
         setAllowBotsToggle(lobby.allowBots);
         setLobbyPlayers(mapLobbyPlayersToGame(lobby.players));
+        const me = lobby.players.find((p) => p.id === onlineSession.memberId);
+        const waiting = me?.waitingForNextRound ?? false;
+        setIsWaitingForRound(waiting);
         const present = lobby.players.filter((p) => p.isBot || p.isConnected).length;
         setStatusMessage(
-          `Sala ${lobby.code}: ${present}/${lobby.maxPlayers} jogadores (${lobby.players.filter((p) => p.isConnected).length} online).`,
+          waiting
+            ? `Partida em andamento — aguarde o host iniciar a próxima rodada (você entrará na Fase 1).`
+            : `Sala ${lobby.code}: ${present}/${lobby.maxPlayers} jogadores (${lobby.players.filter((p) => p.isConnected).length} online).`,
         );
       },
       onRoomDeleted: (payload) => {
@@ -292,6 +307,9 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
         alert(message);
       },
       onGameState: (room) => {
+        const me = room.players.find((p) => p.id === onlineSession.memberId);
+        if (!me) return;
+        setIsWaitingForRound(false);
         onStartGame(room, profile, onlineSession);
       },
     });
@@ -669,7 +687,8 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
             {/* Global Settings */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
-              {/* Max players select */}
+              {/* Max players select — apenas o host define ao criar sala */}
+              {(gameMode !== 'online' || isOnlineRoleHost) && (
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
                   Capacidade da Sala ({maxPlayers} Jogadores)
@@ -689,6 +708,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
                   <option value={10}>10 Jogadores (Máximo)</option>
                 </select>
               </div>
+              )}
+
+              {gameMode === 'online' && !isOnlineRoleHost && (
+              <div className="md:col-span-2 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-slate-400">
+                A capacidade da sala é definida pelo host. Ao entrar, você verá o limite real de jogadores.
+              </div>
+              )}
 
               {/* Bot Delay or Toggle Bots */}
               <div>
@@ -793,6 +819,16 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
             <p className="text-[11px] text-indigo-200">{statusMessage}</p>
           </div>
 
+          {isWaitingForRound && (
+            <div className="bg-amber-950/30 border border-amber-800/50 p-4 rounded-xl text-center space-y-2">
+              <p className="text-sm font-bold text-amber-200">⏳ Aguardando próxima rodada</p>
+              <p className="text-xs text-amber-300/80 leading-relaxed">
+                A partida está em andamento ({roomStatus === 'round_end' ? 'entre rodadas' : 'rodada ativa'}).
+                Você entrará automaticamente quando o host iniciar a próxima rodada, começando na <strong className="text-white">Fase 1</strong> com pontuação zero.
+              </p>
+            </div>
+          )}
+
           {/* Active players grid representation */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {lobbyPlayers.map((p, idx) => (
@@ -883,15 +919,27 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
 
             <button
               onClick={handleLaunchGame}
-              disabled={lobbyPlayers.length < 3 || (gameMode === 'online' && !onlineSession?.isHost)}
+              disabled={
+                isWaitingForRound ||
+                lobbyPlayers.length < 3 ||
+                (gameMode === 'online' && !onlineSession?.isHost)
+              }
               className={`px-8 py-3.5 rounded-xl font-black text-sm tracking-wider uppercase transition-all flex items-center space-x-2 ${
-                lobbyPlayers.length >= 3 && (gameMode !== 'online' || onlineSession?.isHost)
+                !isWaitingForRound &&
+                lobbyPlayers.length >= 3 &&
+                (gameMode !== 'online' || onlineSession?.isHost)
                   ? 'bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white shadow-lg shadow-indigo-950/60 animate-pulse cursor-pointer'
                   : 'bg-slate-800 text-slate-500 border border-slate-850 cursor-not-allowed'
               }`}
             >
               <Play className="w-4 h-4 fill-white" />
-              <span>{gameMode === 'online' && !onlineSession?.isHost ? 'AGUARDANDO HOST' : 'INICIAR PARTIDA'}</span>
+              <span>
+                {isWaitingForRound
+                  ? 'AGUARDANDO RODADA'
+                  : gameMode === 'online' && !onlineSession?.isHost
+                    ? 'AGUARDANDO HOST'
+                    : 'INICIAR PARTIDA'}
+              </span>
             </button>
           </div>
 

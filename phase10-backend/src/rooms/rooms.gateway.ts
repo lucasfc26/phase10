@@ -48,6 +48,8 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
   private botProcessingRooms = new Set<string>();
 
+  private static readonly BOT_TURN_TIMEOUT_MS = 60 * 1000;
+
   private static readonly INACTIVITY_MS = 60 * 60 * 1000;
 
   private static readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -392,6 +394,29 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
     try {
 
+      if (action.type === 'next_round') {
+        const result = await this.roomsService.startNextRound(roomId, memberId);
+        const gameRoom = result.gameRoom;
+
+        this.server.to(roomId).emit('game:log', {
+          id: Date.now().toString(),
+          message: result.log,
+          type: result.logType || 'info',
+          timestamp: new Date().toLocaleTimeString(),
+        });
+
+        await this.broadcastGameState(roomId, gameRoom);
+        void this.scheduleBotTurns(roomId);
+
+        const lobby = await this.roomsService.getLobbyState(roomId);
+        this.server.to(roomId).emit('lobby:update', lobby);
+
+        const masked = this.gameService.maskStateForPlayer(gameRoom, memberId);
+        return { ok: true, room: masked };
+      }
+
+      await this.roomsService.assertMemberCanPlay(memberId, roomId);
+
       let gameRoom = await this.roomsService.getGameRoom(roomId);
 
       const result = this.gameService.applyAction(gameRoom, memberId, action);
@@ -494,11 +519,121 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-        await new Promise((resolve) => setTimeout(resolve, gameRoom.settings.botDelay));
+        const turnStartedAt = gameRoom.currentTurnStartedAt ?? Date.now();
+
+        const turnAge = Date.now() - turnStartedAt;
 
 
 
-        const result = this.gameService.executeBotTurn(gameRoom);
+        if (turnAge >= RoomsGateway.BOT_TURN_TIMEOUT_MS) {
+
+          const skipResult = this.gameService.skipStuckBotTurn(gameRoom);
+
+          gameRoom = skipResult.gameRoom;
+
+          await this.roomsService.saveGameRoom(roomId, gameRoom);
+
+
+
+          if (skipResult.log) {
+
+            this.server.to(roomId).emit('game:log', {
+
+              id: Date.now().toString(),
+
+              message: skipResult.log,
+
+              type: skipResult.logType || 'warning',
+
+              timestamp: new Date().toLocaleTimeString(),
+
+            });
+
+          }
+
+
+
+          for (const skipLog of skipResult.skipLogs || []) {
+
+            this.server.to(roomId).emit('game:log', {
+
+              id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
+
+              message: skipLog,
+
+              type: 'warning',
+
+              timestamp: new Date().toLocaleTimeString(),
+
+            });
+
+          }
+
+
+
+          await this.broadcastGameState(roomId, gameRoom);
+
+          continue;
+
+        }
+
+
+
+        const waitMs = Math.min(
+
+          gameRoom.settings.botDelay,
+
+          RoomsGateway.BOT_TURN_TIMEOUT_MS - turnAge,
+
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, Math.max(waitMs, 0)));
+
+
+
+        try {
+
+          gameRoom = await this.roomsService.getGameRoom(roomId);
+
+        } catch {
+
+          break;
+
+        }
+
+
+
+        if (gameRoom.status !== 'playing') break;
+
+
+
+        const stillActive = gameRoom.players[gameRoom.currentTurnIndex];
+
+        if (!stillActive?.isBot) break;
+
+
+
+        const ageAfterWait = Date.now() - (gameRoom.currentTurnStartedAt ?? Date.now());
+
+        if (ageAfterWait >= RoomsGateway.BOT_TURN_TIMEOUT_MS) {
+
+          continue;
+
+        }
+
+
+
+        let result;
+
+        try {
+
+          result = this.gameService.executeBotTurn(gameRoom);
+
+        } catch {
+
+          result = this.gameService.skipStuckBotTurn(gameRoom);
+
+        }
 
         gameRoom = result.gameRoom;
 
@@ -506,9 +641,47 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-        for (const log of result.logs) {
+        const logs = 'logs' in result ? result.logs : [];
+
+        for (const log of logs) {
 
           this.server.to(roomId).emit('game:log', log);
+
+        }
+
+
+
+        if ('log' in result && result.log) {
+
+          this.server.to(roomId).emit('game:log', {
+
+            id: Date.now().toString(),
+
+            message: result.log,
+
+            type: result.logType || 'warning',
+
+            timestamp: new Date().toLocaleTimeString(),
+
+          });
+
+        }
+
+
+
+        for (const skipLog of ('skipLogs' in result ? result.skipLogs : []) || []) {
+
+          this.server.to(roomId).emit('game:log', {
+
+            id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
+
+            message: skipLog,
+
+            type: 'warning',
+
+            timestamp: new Date().toLocaleTimeString(),
+
+          });
 
         }
 
@@ -536,7 +709,13 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
       const viewerId = socket.data.memberId as string;
 
-      socket.emit('game:state', this.gameService.maskStateForPlayer(gameRoom, viewerId));
+      const masked = await this.roomsService.getMaskedGameState(roomId, viewerId);
+
+      if (masked) {
+
+        socket.emit('game:state', masked);
+
+      }
 
     }
 

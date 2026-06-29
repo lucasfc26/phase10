@@ -51,12 +51,13 @@ export class RoomsService {
       memberId: member.id,
       sessionToken: member.sessionToken,
       isHost: room.hostMemberId === member.id,
+      waitingForNextRound: member.waitingForNextRound ?? false,
     };
   }
 
   async listPublicRooms(): Promise<PublicRoomDto[]> {
     const rooms = await this.roomRepo.find({
-      where: [{ status: 'lobby' }, { status: 'playing' }],
+      where: [{ status: 'lobby' }, { status: 'playing' }, { status: 'round_end' }],
       relations: { members: true },
       order: { createdAt: 'DESC' },
     });
@@ -140,9 +141,6 @@ export class RoomsService {
       (m) => !m.isConnected && m.name.trim().toLowerCase() === normalizedName,
     );
     if (existingDisconnected) {
-      if (room.status !== 'lobby') {
-        throw new BadRequestException('A partida já começou. Não é possível reconectar com novo cadastro.');
-      }
       existingDisconnected.sessionToken = uuidv4();
       existingDisconnected.avatar = dto.avatar;
       existingDisconnected.color = dto.color;
@@ -152,10 +150,11 @@ export class RoomsService {
       return { session: this.toSession(room, existingDisconnected), lobby };
     }
 
-    if (room.status !== 'lobby') throw new BadRequestException('A partida já começou.');
     if ((room.members?.length || 0) >= room.maxPlayers) {
       throw new BadRequestException('Sala cheia.');
     }
+
+    const joiningMidGame = room.status !== 'lobby';
 
     const memberId = uuidv4();
     const sessionToken = uuidv4();
@@ -171,6 +170,7 @@ export class RoomsService {
       sessionToken,
       seatIndex,
       isConnected: false,
+      waitingForNextRound: joiningMidGame,
     });
 
     await this.memberRepo.save(member);
@@ -220,6 +220,7 @@ export class RoomsService {
         isBot: m.isBot,
         isConnected: m.isConnected,
         seatIndex: m.seatIndex,
+        waitingForNextRound: m.waitingForNextRound ?? false,
       }));
 
     return {
@@ -265,6 +266,10 @@ export class RoomsService {
     }
 
     if (room.status !== 'lobby') {
+      if (member.waitingForNextRound) {
+        await this.memberRepo.delete(memberId);
+        return { type: 'member_left', roomId: member.roomId };
+      }
       await this.bindSocket(memberId, null);
       return { type: 'member_left', roomId: member.roomId };
     }
@@ -363,7 +368,7 @@ export class RoomsService {
     if (room.status !== 'lobby') throw new BadRequestException('A partida já foi iniciada.');
 
     const members = (room.members || [])
-      .filter((m) => m.isBot || m.isConnected)
+      .filter((m) => !m.waitingForNextRound && (m.isBot || m.isConnected))
       .sort((a, b) => a.seatIndex - b.seatIndex);
 
     if (members.length < 3) {
@@ -406,10 +411,98 @@ export class RoomsService {
     await this.roomRepo.save(room);
   }
 
+  async assertMemberCanPlay(memberId: string, roomId: string): Promise<void> {
+    const member = await this.memberRepo.findOne({ where: { id: memberId, roomId } });
+    if (!member) throw new NotFoundException('Jogador não encontrado.');
+    if (member.waitingForNextRound) {
+      throw new BadRequestException('Aguarde o início da próxima rodada para jogar.');
+    }
+
+    const gameRoom = await this.getGameRoom(roomId);
+    if (!gameRoom.players.some((p) => p.id === memberId)) {
+      throw new BadRequestException('Você ainda não entrou na partida em andamento.');
+    }
+  }
+
+  async startNextRound(
+    roomId: string,
+    memberId: string,
+  ): Promise<{ gameRoom: GameRoom; log: string; logType: string }> {
+    let gameRoom = await this.getGameRoom(roomId);
+    if (gameRoom.status !== 'round_end') {
+      throw new BadRequestException('A rodada ainda não terminou.');
+    }
+    if (memberId !== gameRoom.hostId) {
+      throw new ForbiddenException('Apenas o host pode iniciar a próxima rodada.');
+    }
+
+    gameRoom = await this.mergeWaitingPlayersForNextRound(roomId, gameRoom);
+    const next = {
+      ...gameRoom,
+      status: 'playing' as const,
+      roundNumber: gameRoom.roundNumber + 1,
+    };
+    const final = this.gameService.startNewRound(next);
+    await this.saveGameRoom(roomId, final);
+    return {
+      gameRoom: final,
+      log: `--- Rodada ${final.roundNumber} Iniciando ---`,
+      logType: 'phase',
+    };
+  }
+
+  private async mergeWaitingPlayersForNextRound(roomId: string, gameRoom: GameRoom): Promise<GameRoom> {
+    const room = await this.roomRepo.findOne({
+      where: { id: roomId },
+      relations: { members: true },
+    });
+    const members = (room?.members || []).sort((a, b) => a.seatIndex - b.seatIndex);
+    const activeMemberIds = new Set(
+      members.filter((m) => m.isBot || m.isConnected).map((m) => m.id),
+    );
+
+    let players = gameRoom.players.filter((p) => activeMemberIds.has(p.id));
+
+    for (const m of members) {
+      if (!activeMemberIds.has(m.id)) continue;
+
+      const existing = players.find((p) => p.id === m.id);
+      if (!existing) {
+        players.push(this.gameService.membersToPlayers([m])[0]);
+      } else if (m.waitingForNextRound) {
+        players = players.map((p) =>
+          p.id === m.id
+            ? { ...this.gameService.membersToPlayers([m])[0], phase: 1, score: 0 }
+            : p,
+        );
+      }
+    }
+
+    await this.memberRepo
+      .createQueryBuilder()
+      .update(RoomMember)
+      .set({ waitingForNextRound: false })
+      .where('roomId = :roomId', { roomId })
+      .andWhere('waitingForNextRound = :waiting', { waiting: true })
+      .execute();
+
+    players.sort((a, b) => {
+      const seatA = members.find((m) => m.id === a.id)?.seatIndex ?? 0;
+      const seatB = members.find((m) => m.id === b.id)?.seatIndex ?? 0;
+      return seatA - seatB;
+    });
+
+    return { ...gameRoom, players };
+  }
+
   async getMaskedGameState(roomId: string, memberId: string): Promise<GameRoom | null> {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
+    if (member?.waitingForNextRound) return null;
+
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
     if (!room?.gameStateJson || room.status === 'lobby') return null;
     const gameRoom = this.gameService.deserialize(room.gameStateJson);
+    if (!gameRoom.players.some((p) => p.id === memberId)) return null;
     return this.gameService.maskStateForPlayer(gameRoom, memberId);
   }
 }
