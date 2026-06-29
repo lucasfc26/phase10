@@ -67,6 +67,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const [roundEndReason, setRoundEndReason] = useState<'go_out' | 'all_laid_down'>('go_out');
   const [autoStartCountdown, setAutoStartCountdown] = useState<number | null>(null);
   const roundEndHandledRef = useRef(false);
+  const pendingActionRef = useRef(false);
+  const lastStateVersionRef = useRef(0);
+  const [isActionPending, setIsActionPending] = useState(false);
 
   // Sound generator
   const playSound = (type: 'draw' | 'discard' | 'laydown' | 'skip' | 'win' | 'click') => {
@@ -169,6 +172,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   };
 
   const applyOnlineGameState = (state: GameRoom) => {
+    const version = state.stateVersion ?? 0;
+    if (version < lastStateVersionRef.current) return;
+    lastStateVersionRef.current = version;
+
     setRoom(state);
     roundEndHandledRef.current = state.status === 'round_end';
     if (state.status === 'round_end') {
@@ -196,6 +203,25 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       return false;
     }
     if (result?.room) applyOnlineGameState(result.room);
+    return true;
+  };
+
+  const sendOnlineAction = (
+    action: Record<string, unknown>,
+    onSuccess?: () => void,
+  ) => {
+    if (pendingActionRef.current) return false;
+    pendingActionRef.current = true;
+    setIsActionPending(true);
+    emitGameAction(
+      { ...action, expectedStateVersion: lastStateVersionRef.current },
+      (result) => {
+        pendingActionRef.current = false;
+        setIsActionPending(false);
+        if (!handleOnlineActionResult(result)) return;
+        onSuccess?.();
+      },
+    );
     return true;
   };
 
@@ -385,14 +411,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
   // Draw card from draw pile or discard pile
   const handleDrawCard = (source: 'draw' | 'discard') => {
-    if (!isMyTurn || turnState !== 'drawing' || activePlayer?.isSkipped) return;
+    if (!isMyTurn || turnState !== 'drawing' || activePlayer?.isSkipped || isActionPending) return;
 
     if (isOnline) {
-      emitGameAction({ type: 'draw', source }, (result) => {
-        if (result?.error) {
-          alert(result.error);
-          return;
-        }
+      playSound('draw');
+      sendOnlineAction({ type: 'draw', source }, () => {
         setTurnState('playing');
       });
       return;
@@ -462,15 +485,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
   const executeDiscard = (card: Card, skipPlayerId: string | null) => {
     if (isOnline) {
-      emitGameAction({
+      if (isActionPending) return;
+      playSound('discard');
+      sendOnlineAction({
         type: 'discard',
         cardId: card.id,
         skipPlayerId: skipPlayerId || undefined,
-      }, (result) => {
-        if (result?.error) {
-          alert(result.error);
-          return;
-        }
+      }, () => {
         setIsBuildingPhase(false);
         setBuildGroup1([]);
         setBuildGroup2([]);
@@ -680,14 +701,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     const group2Ids = buildGroup2.map((c) => c.id);
 
     if (isOnline) {
-      emitGameAction(
+      sendOnlineAction(
         {
           type: 'lay_down',
           group1CardIds: group1Ids,
           group2CardIds: group2Ids,
         },
-        (result) => {
-          if (!handleOnlineActionResult(result)) return;
+        () => {
           playSound('laydown');
           setIsBuildingPhase(false);
           setBuildGroup1([]);
@@ -792,15 +812,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     }
 
     if (isOnline) {
-      emitGameAction(
+      sendOnlineAction(
         {
           type: 'hit',
           cardId: selectedHitCard.id,
           targetPlayerId,
           groupIndex,
         },
-        (result) => {
-          if (!handleOnlineActionResult(result)) return;
+        () => {
           playSound('draw');
           clearCardSelection();
         },
@@ -968,9 +987,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     const timer = setTimeout(() => {
       if (isOnline) {
         if (!onlineSession?.isHost) return;
-        emitGameAction({ type: 'next_round' }, (result) => {
-          if (result?.error) return;
-          if (result?.room) applyOnlineGameState(result.room);
+        sendOnlineAction({ type: 'next_round' }, () => {
           roundEndHandledRef.current = false;
           setAutoStartCountdown(null);
         });
@@ -993,14 +1010,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         alert('Apenas o host pode iniciar a próxima rodada.');
         return;
       }
-      emitGameAction({ type: 'next_round' }, (result) => {
-        if (result?.error) {
-          alert(result.error);
-          return;
-        }
-        if (result?.room) {
-          applyOnlineGameState(result.room);
-        }
+      sendOnlineAction({ type: 'next_round' }, () => {
         roundEndHandledRef.current = false;
         setAutoStartCountdown(null);
       });
@@ -1393,9 +1403,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 
                 <button
                   onClick={() => handleDrawCard('draw')}
-                  disabled={!isMyTurn || turnState !== 'drawing'}
+                  disabled={!isMyTurn || turnState !== 'drawing' || isActionPending}
                   className={`w-28 h-40 rounded-2xl border-4 transition-all relative flex flex-col items-center justify-center shadow-lg ${
-                    isMyTurn && turnState === 'drawing'
+                    isMyTurn && turnState === 'drawing' && !isActionPending
                       ? 'border-purple-500 bg-slate-950 hover:scale-105 active:scale-95 cursor-pointer shadow-purple-900/20'
                       : 'border-slate-800 bg-slate-950 cursor-not-allowed opacity-80'
                   }`}
@@ -1424,9 +1434,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                     return (
                       <button
                         onClick={() => handleDrawCard('discard')}
-                        disabled={!isMyTurn || turnState !== 'drawing' || isSkip}
+                        disabled={!isMyTurn || turnState !== 'drawing' || isSkip || isActionPending}
                         className={`w-28 h-40 rounded-2xl border-4 transition-all relative flex flex-col items-center justify-between p-4 shadow-lg overflow-hidden ${
-                          isMyTurn && turnState === 'drawing' && !isSkip
+                          isMyTurn && turnState === 'drawing' && !isSkip && !isActionPending
                             ? 'border-emerald-500 hover:scale-105 active:scale-95 cursor-pointer shadow-emerald-900/20'
                             : 'border-slate-800 cursor-not-allowed'
                         }`}

@@ -15,15 +15,15 @@ services:
 
   frontend:
     build:
-      context: ./phase10-frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.frontend
     container_name: phase10-frontend
     ports:
       - "5173:5173"
     environment:
       VITE_PROXY_TARGET: http://backend:3001
     volumes:
-      - ./phase10-frontend:/app
+      - .:/app
       - frontend_node_modules:/app/node_modules
     depends_on:
       - backend

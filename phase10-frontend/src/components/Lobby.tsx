@@ -59,7 +59,7 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
   const [isOnlineRoleHost, setIsOnlineRoleHost] = useState<boolean>(true); // Host vs Join Code
   const [inputRoomCode, setInputRoomCode] = useState<string>('');
   const [maxPlayers, setMaxPlayers] = useState<number>(4);
-  const [botSpeed, setBotSpeed] = useState<number>(1200); // ms delay
+  const [botSpeed, setBotSpeed] = useState<number>(600); // ms delay
   const [allowBotsToggle, setAllowBotsToggle] = useState<boolean>(true);
   const [roomPassword, setRoomPassword] = useState<string>('');
   const [joinPassword, setJoinPassword] = useState<string>('');
@@ -109,14 +109,30 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
       isSkipped: false,
     }));
 
-  // Load public rooms when online mode is selected
+  // Load public rooms when online mode is selected (pauses when tab is hidden)
   useEffect(() => {
     if (step !== 'room_setup' || gameMode !== 'online') return;
-    onlineApi.listRooms().then(setPublicRooms).catch(() => setPublicRooms([]));
-    const interval = setInterval(() => {
-      onlineApi.listRooms().then(setPublicRooms).catch(() => {});
-    }, 5000);
-    return () => clearInterval(interval);
+
+    let interval: ReturnType<typeof setInterval>;
+
+    const refresh = () => {
+      onlineApi.listRooms().then(setPublicRooms).catch(() => setPublicRooms([]));
+    };
+
+    const startPolling = () => {
+      refresh();
+      clearInterval(interval);
+      interval = setInterval(refresh, document.hidden ? 15000 : 8000);
+    };
+
+    const onVisibility = () => startPolling();
+
+    startPolling();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [step, gameMode]);
 
   // Step 2 -> Step 3 (Creates / Pre-configures the Lobby room)
@@ -760,8 +776,8 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
                   className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-300"
                 >
                   <option value={2000}>Super Calmo (2.0s)</option>
-                  <option value={1200}>Moderado (1.2s)</option>
-                  <option value={600}>Rápido (0.6s)</option>
+                  <option value={600}>Moderado (0.6s)</option>
+                  <option value={1200}>Lento (1.2s)</option>
                   <option value={200}>Instantâneo (0.2s)</option>
                 </select>
               </div>

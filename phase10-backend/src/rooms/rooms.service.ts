@@ -7,6 +7,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import { DEFAULT_BOT_DELAY_MS } from '../common/game.constants';
 import { GameService } from '../game/game.service';
 import { GameRoom } from '../common/game.types';
 import { CreateRoomDto } from './dto/create-room.dto';
@@ -22,6 +23,8 @@ import { Room, RoomMember } from './entities/room.entities';
 export class RoomsService {
   private readonly roomRepo: Repository<Room>;
   private readonly memberRepo: Repository<RoomMember>;
+  private readonly gameRoomCache = new Map<string, GameRoom>();
+  private publicRoomsCache: { at: number; data: PublicRoomDto[] } | null = null;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -55,26 +58,54 @@ export class RoomsService {
     };
   }
 
+  invalidateGameRoomCache(roomId: string): void {
+    this.gameRoomCache.delete(roomId);
+  }
+
+  setCachedGameRoom(roomId: string, gameRoom: GameRoom): void {
+    this.gameRoomCache.set(roomId, gameRoom);
+  }
+
+  private invalidatePublicRoomsCache(): void {
+    this.publicRoomsCache = null;
+  }
+
   async listPublicRooms(): Promise<PublicRoomDto[]> {
+    await this.deleteEmptyLobbyRooms(2 * 60 * 1000);
+
+    if (
+      this.publicRoomsCache &&
+      Date.now() - this.publicRoomsCache.at < 4000
+    ) {
+      return this.publicRoomsCache.data;
+    }
+
     const rooms = await this.roomRepo.find({
       where: [{ status: 'lobby' }, { status: 'playing' }, { status: 'round_end' }],
       relations: { members: true },
       order: { createdAt: 'DESC' },
     });
 
-    return rooms.map((room) => {
+    const result = rooms
+      .map((room) => {
       const host = room.members?.find((m) => m.id === room.hostMemberId);
+      const activeCount =
+        room.members?.filter((m) => m.isBot || m.isConnected).length || 0;
       return {
         id: room.id,
         code: room.code,
         hostName: host?.name || 'Host',
-        playerCount: room.members?.filter((m) => m.isBot || m.isConnected).length || 0,
+        playerCount: activeCount,
         maxPlayers: room.maxPlayers,
         hasPassword: !!room.passwordHash,
         status: room.status,
         createdAt: room.createdAt,
       };
-    });
+    })
+      .filter((room) => room.status !== 'lobby' || room.playerCount > 0);
+
+    this.publicRoomsCache = { at: Date.now(), data: result };
+    return result;
   }
 
   async createRoom(dto: CreateRoomDto): Promise<{ session: RoomSessionDto; lobby: LobbyStateDto }> {
@@ -90,7 +121,7 @@ export class RoomsService {
       status: 'lobby',
       settings: {
         gameMode: 'online',
-        botDelay: 1200,
+        botDelay: DEFAULT_BOT_DELAY_MS,
         customPhases: false,
         allowBots: dto.allowBots ?? false,
       },
@@ -115,6 +146,7 @@ export class RoomsService {
     await this.memberRepo.save(member);
 
     await this.touchRoomActivity(savedRoom.id);
+    this.invalidatePublicRoomsCache();
 
     const lobby = await this.getLobbyState(savedRoom.id);
     return { session: this.toSession(savedRoom, member), lobby };
@@ -176,6 +208,7 @@ export class RoomsService {
     await this.memberRepo.save(member);
 
     await this.touchRoomActivity(room.id);
+    this.invalidatePublicRoomsCache();
 
     const lobby = await this.getLobbyState(room.id);
     return { session: this.toSession(room, member), lobby };
@@ -183,6 +216,34 @@ export class RoomsService {
 
   async touchRoomActivity(roomId: string): Promise<void> {
     await this.roomRepo.update(roomId, { lastActivityAt: new Date() });
+  }
+
+  /** Remove lobbies abandonados (sem jogadores ativos: conectados ou bots). */
+  async deleteEmptyLobbyRooms(maxIdleMs: number): Promise<string[]> {
+    const cutoff = new Date(Date.now() - maxIdleMs);
+    const rooms = await this.roomRepo.find({
+      where: { status: 'lobby' },
+      relations: { members: true },
+    });
+
+    const deletedIds: string[] = [];
+    for (const room of rooms) {
+      const members = room.members ?? [];
+      const activeCount = members.filter((m) => m.isBot || m.isConnected).length;
+      if (activeCount > 0) continue;
+
+      const lastTouch = room.lastActivityAt ?? room.createdAt ?? room.updatedAt;
+      if (lastTouch >= cutoff) continue;
+
+      this.invalidateGameRoomCache(room.id);
+      await this.roomRepo.delete(room.id);
+      deletedIds.push(room.id);
+    }
+
+    if (deletedIds.length > 0) {
+      this.invalidatePublicRoomsCache();
+    }
+    return deletedIds;
   }
 
   /** Remove salas sem atividade (jogadas ou alterações no lobby) por mais de maxIdleMs. */
@@ -197,9 +258,11 @@ export class RoomsService {
 
     const deletedIds: string[] = [];
     for (const room of stale) {
+      this.invalidateGameRoomCache(room.id);
       await this.roomRepo.delete(room.id);
       deletedIds.push(room.id);
     }
+    this.invalidatePublicRoomsCache();
     return deletedIds;
   }
 
@@ -261,7 +324,26 @@ export class RoomsService {
 
     if (room.hostMemberId === memberId) {
       const roomId = room.id;
+      const members = await this.memberRepo.find({ where: { roomId } });
+      const others = members.filter((m) => m.id !== memberId);
+
+      if (room.status === 'lobby' && others.length === 0) {
+        this.invalidateGameRoomCache(roomId);
+        await this.roomRepo.delete(roomId);
+        this.invalidatePublicRoomsCache();
+        return { type: 'room_deleted', roomId };
+      }
+
+      if (room.status === 'lobby' && others.length > 0) {
+        const nextHost = others.sort((a, b) => a.seatIndex - b.seatIndex)[0];
+        await this.roomRepo.update(roomId, { hostMemberId: nextHost.id });
+        await this.bindSocket(memberId, null);
+        return { type: 'member_left', roomId };
+      }
+
+      this.invalidateGameRoomCache(roomId);
       await this.roomRepo.delete(roomId);
+      this.invalidatePublicRoomsCache();
       return { type: 'room_deleted', roomId };
     }
 
@@ -386,29 +468,48 @@ export class RoomsService {
     gameRoom.maxPlayers = room.maxPlayers;
     gameRoom = this.gameService.startNewRound(gameRoom);
 
-    room.status = 'playing';
-    room.gameStateJson = this.gameService.serialize(gameRoom);
-    room.roundNumber = gameRoom.roundNumber;
-    room.lastActivityAt = new Date();
-    await this.roomRepo.save(room);
-
-    return gameRoom;
+    const saved = await this.saveGameRoom(roomId, gameRoom);
+    this.invalidatePublicRoomsCache();
+    return saved;
   }
 
   async getGameRoom(roomId: string): Promise<GameRoom> {
+    const cached = this.gameRoomCache.get(roomId);
+    if (cached) return cached;
+
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
     if (!room || !room.gameStateJson) throw new NotFoundException('Estado do jogo não encontrado.');
-    return this.gameService.deserialize(room.gameStateJson);
+    const gameRoom = this.gameService.deserialize(room.gameStateJson);
+    this.gameRoomCache.set(roomId, gameRoom);
+    return gameRoom;
   }
 
-  async saveGameRoom(roomId: string, gameRoom: GameRoom): Promise<void> {
+  async saveGameRoom(roomId: string, gameRoom: GameRoom): Promise<GameRoom> {
+    const versioned: GameRoom = {
+      ...gameRoom,
+      stateVersion: (gameRoom.stateVersion ?? 0) + 1,
+    };
+
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
     if (!room) throw new NotFoundException('Sala não encontrada.');
-    room.gameStateJson = this.gameService.serialize(gameRoom);
-    room.status = gameRoom.status as Room['status'];
-    room.roundNumber = gameRoom.roundNumber;
+    room.gameStateJson = this.gameService.serialize(versioned);
+    room.status = versioned.status as Room['status'];
+    room.roundNumber = versioned.roundNumber;
     room.lastActivityAt = new Date();
     await this.roomRepo.save(room);
+
+    this.gameRoomCache.set(roomId, versioned);
+    return versioned;
+  }
+
+  assertStateVersion(gameRoom: GameRoom, expected?: number): void {
+    if (expected === undefined) return;
+    const current = gameRoom.stateVersion ?? 0;
+    if (expected !== current) {
+      throw new BadRequestException(
+        `Estado desatualizado (esperado v${expected}, servidor v${current}). Aguarde a sincronização.`,
+      );
+    }
   }
 
   async assertMemberCanPlay(memberId: string, roomId: string): Promise<void> {
@@ -443,10 +544,10 @@ export class RoomsService {
       roundNumber: gameRoom.roundNumber + 1,
     };
     const final = this.gameService.startNewRound(next);
-    await this.saveGameRoom(roomId, final);
+    const saved = await this.saveGameRoom(roomId, final);
     return {
-      gameRoom: final,
-      log: `--- Rodada ${final.roundNumber} Iniciando ---`,
+      gameRoom: saved,
+      log: `--- Rodada ${saved.roundNumber} Iniciando ---`,
       logType: 'phase',
     };
   }
@@ -499,10 +600,12 @@ export class RoomsService {
     const member = await this.memberRepo.findOne({ where: { id: memberId } });
     if (member?.waitingForNextRound) return null;
 
-    const room = await this.roomRepo.findOne({ where: { id: roomId } });
-    if (!room?.gameStateJson || room.status === 'lobby') return null;
-    const gameRoom = this.gameService.deserialize(room.gameStateJson);
-    if (!gameRoom.players.some((p) => p.id === memberId)) return null;
-    return this.gameService.maskStateForPlayer(gameRoom, memberId);
+    try {
+      const gameRoom = await this.getGameRoom(roomId);
+      if (!gameRoom.players.some((p) => p.id === memberId)) return null;
+      return this.gameService.maskStateForPlayer(gameRoom, memberId);
+    } catch {
+      return null;
+    }
   }
 }

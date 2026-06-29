@@ -31,4 +31,8 @@ export class GameActionDto {
   @IsOptional()
   @IsInt()
   groupIndex?: number;
+
+  @IsOptional()
+  @IsInt()
+  expectedStateVersion?: number;
 }

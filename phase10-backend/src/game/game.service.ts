@@ -53,6 +53,7 @@ export class GameService {
       roundNumber: 1,
       winnerId: null,
       hasDrawnThisTurn: false,
+      stateVersion: 0,
       settings,
     };
   }
@@ -605,6 +606,9 @@ export class GameService {
     const room = JSON.parse(json) as GameRoom;
     if (room.hasDrawnThisTurn === undefined) {
       room.hasDrawnThisTurn = false;
+    }
+    if (room.stateVersion === undefined) {
+      room.stateVersion = 0;
     }
     if (!room.currentTurnStartedAt) {
       room.currentTurnStartedAt = Date.now();

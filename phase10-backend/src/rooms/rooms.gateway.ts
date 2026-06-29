@@ -48,7 +48,11 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
   private botProcessingRooms = new Set<string>();
 
+  private roomActionChains = new Map<string, Promise<unknown>>();
+
   private static readonly BOT_TURN_TIMEOUT_MS = 60 * 1000;
+
+  private static readonly EMPTY_LOBBY_MS = 3 * 60 * 1000;
 
   private static readonly INACTIVITY_MS = 60 * 60 * 1000;
 
@@ -70,6 +74,8 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
   onModuleInit() {
 
+    void this.cleanupInactiveRooms();
+
     this.cleanupTimer = setInterval(() => {
 
       void this.cleanupInactiveRooms();
@@ -90,9 +96,13 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
   private async cleanupInactiveRooms() {
 
+    const emptyDeleted = await this.roomsService.deleteEmptyLobbyRooms(
+      RoomsGateway.EMPTY_LOBBY_MS,
+    );
+
     const deleted = await this.roomsService.deleteInactiveRooms(RoomsGateway.INACTIVITY_MS);
 
-    for (const roomId of deleted) {
+    for (const roomId of new Set([...emptyDeleted, ...deleted])) {
 
       this.botProcessingRooms.delete(roomId);
 
@@ -392,9 +402,13 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
+    return this.runSerializedRoomAction(roomId, async () => {
+
     try {
 
       if (action.type === 'next_round') {
+        const current = await this.roomsService.getGameRoom(roomId);
+        this.roomsService.assertStateVersion(current, action.expectedStateVersion);
         const result = await this.roomsService.startNextRound(roomId, memberId);
         const gameRoom = result.gameRoom;
 
@@ -418,12 +432,11 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       await this.roomsService.assertMemberCanPlay(memberId, roomId);
 
       let gameRoom = await this.roomsService.getGameRoom(roomId);
+      this.roomsService.assertStateVersion(gameRoom, action.expectedStateVersion);
 
       const result = this.gameService.applyAction(gameRoom, memberId, action);
 
-      gameRoom = result.gameRoom;
-
-      await this.roomsService.saveGameRoom(roomId, gameRoom);
+      gameRoom = await this.roomsService.saveGameRoom(roomId, result.gameRoom);
 
 
 
@@ -479,9 +492,62 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
     }
 
+    });
+
   }
 
 
+
+  private shouldPersistAfterBotTurn(gameRoom: import('../common/game.types').GameRoom): boolean {
+    if (gameRoom.status !== 'playing') return true;
+    const next = gameRoom.players[gameRoom.currentTurnIndex];
+    return !next?.isBot;
+  }
+
+  private async publishBotGameState(
+    roomId: string,
+    gameRoom: import('../common/game.types').GameRoom,
+    persist: boolean,
+  ): Promise<import('../common/game.types').GameRoom> {
+    if (persist) {
+      const saved = await this.roomsService.saveGameRoom(roomId, gameRoom);
+      await this.broadcastGameState(roomId, saved);
+      return saved;
+    }
+    this.roomsService.setCachedGameRoom(roomId, gameRoom);
+    await this.broadcastGameState(roomId, gameRoom);
+    return gameRoom;
+  }
+
+  private emitBotLogs(
+    roomId: string,
+    result:
+      | { logs?: Array<{ id: string; message: string; type: string; timestamp: string }> }
+      | { log?: string; logType?: string; skipLogs?: string[] },
+  ) {
+    const logs = 'logs' in result ? result.logs || [] : [];
+    for (const log of logs) {
+      this.server.to(roomId).emit('game:log', log);
+    }
+
+    if ('log' in result && result.log) {
+      this.server.to(roomId).emit('game:log', {
+        id: Date.now().toString(),
+        message: result.log,
+        type: result.logType || 'warning',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    }
+
+    for (const skipLog of ('skipLogs' in result ? result.skipLogs : []) || []) {
+      this.server.to(roomId).emit('game:log', {
+        id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
+        message: skipLog,
+        type: 'warning',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    }
+  }
 
   private async scheduleBotTurns(roomId: string) {
 
@@ -489,7 +555,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
     this.botProcessingRooms.add(roomId);
 
-
+    let pendingPersist = false;
 
     try {
 
@@ -531,48 +597,21 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
           gameRoom = skipResult.gameRoom;
 
-          await this.roomsService.saveGameRoom(roomId, gameRoom);
+          this.emitBotLogs(roomId, skipResult);
 
+          pendingPersist = !this.shouldPersistAfterBotTurn(gameRoom);
 
+          gameRoom = await this.publishBotGameState(
+            roomId,
+            gameRoom,
+            !pendingPersist,
+          );
 
-          if (skipResult.log) {
-
-            this.server.to(roomId).emit('game:log', {
-
-              id: Date.now().toString(),
-
-              message: skipResult.log,
-
-              type: skipResult.logType || 'warning',
-
-              timestamp: new Date().toLocaleTimeString(),
-
-            });
-
+          if (!pendingPersist) {
+            continue;
           }
 
-
-
-          for (const skipLog of skipResult.skipLogs || []) {
-
-            this.server.to(roomId).emit('game:log', {
-
-              id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
-
-              message: skipLog,
-
-              type: 'warning',
-
-              timestamp: new Date().toLocaleTimeString(),
-
-            });
-
-          }
-
-
-
-          await this.broadcastGameState(roomId, gameRoom);
-
+          pendingPersist = false;
           continue;
 
         }
@@ -637,58 +676,25 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
         gameRoom = result.gameRoom;
 
-        await this.roomsService.saveGameRoom(roomId, gameRoom);
+        this.emitBotLogs(roomId, result);
 
+        pendingPersist = true;
 
+        const persistNow = this.shouldPersistAfterBotTurn(gameRoom);
 
-        const logs = 'logs' in result ? result.logs : [];
+        gameRoom = await this.publishBotGameState(roomId, gameRoom, persistNow);
 
-        for (const log of logs) {
+        if (persistNow) pendingPersist = false;
 
-          this.server.to(roomId).emit('game:log', log);
+      }
 
+      if (pendingPersist) {
+        try {
+          const gameRoom = await this.roomsService.getGameRoom(roomId);
+          await this.publishBotGameState(roomId, gameRoom, true);
+        } catch {
+          // room may have been deleted
         }
-
-
-
-        if ('log' in result && result.log) {
-
-          this.server.to(roomId).emit('game:log', {
-
-            id: Date.now().toString(),
-
-            message: result.log,
-
-            type: result.logType || 'warning',
-
-            timestamp: new Date().toLocaleTimeString(),
-
-          });
-
-        }
-
-
-
-        for (const skipLog of ('skipLogs' in result ? result.skipLogs : []) || []) {
-
-          this.server.to(roomId).emit('game:log', {
-
-            id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
-
-            message: skipLog,
-
-            type: 'warning',
-
-            timestamp: new Date().toLocaleTimeString(),
-
-          });
-
-        }
-
-
-
-        await this.broadcastGameState(roomId, gameRoom);
-
       }
 
     } finally {
@@ -701,24 +707,27 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-  private async broadcastGameState(roomId: string, gameRoom: import('../common/game.types').GameRoom) {
+  private async runSerializedRoomAction<T>(roomId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.roomActionChains.get(roomId) ?? Promise.resolve();
+    const next = prev.then(() => fn());
+    this.roomActionChains.set(roomId, next);
+    try {
+      return await next;
+    } finally {
+      if (this.roomActionChains.get(roomId) === next) {
+        this.roomActionChains.delete(roomId);
+      }
+    }
+  }
 
+  private async broadcastGameState(roomId: string, gameRoom: import('../common/game.types').GameRoom) {
     const sockets = await this.server.in(roomId).fetchSockets();
 
     for (const socket of sockets) {
-
       const viewerId = socket.data.memberId as string;
-
-      const masked = await this.roomsService.getMaskedGameState(roomId, viewerId);
-
-      if (masked) {
-
-        socket.emit('game:state', masked);
-
-      }
-
+      const masked = this.gameService.maskStateForPlayer(gameRoom, viewerId);
+      socket.emit('game:state', masked);
     }
-
   }
 
 }
