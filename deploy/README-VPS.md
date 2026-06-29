@@ -45,7 +45,10 @@ ports:
   - "127.0.0.1:5173:5173"   # frontend
 ```
 
-## 4. Nginx
+## 4. Nginx (somente HTTP primeiro)
+
+O arquivo **não** deve ter bloco `listen 443 ssl` antes do Certbot — senão o nginx falha com:
+`no "ssl_certificate" is defined`.
 
 ```bash
 cp /opt/phase10/deploy/nginx/cards.maselcorp.com.br.conf /etc/nginx/sites-available/cards.maselcorp.com.br
@@ -53,13 +56,17 @@ ln -sf /etc/nginx/sites-available/cards.maselcorp.com.br /etc/nginx/sites-enable
 nginx -t && systemctl reload nginx
 ```
 
+Teste: http://cards.maselcorp.com.br (sem HTTPS ainda).
+
 ## 5. SSL (Let's Encrypt)
+
+Com nginx válido na porta 80:
 
 ```bash
 certbot --nginx -d cards.maselcorp.com.br
 ```
 
-O Certbot ajusta o bloco HTTPS automaticamente.
+O Certbot adiciona HTTPS e redirecionamento automaticamente.
 
 ## 6. Firewall
 
