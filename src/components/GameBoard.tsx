@@ -1437,19 +1437,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                   {turnState === 'playing' && 'Baixe sua fase, bata cartas ou descarte para passar o turno.'}
                   {turnState === 'idle' && `Aguardando ${activePlayer.name}...`}
                 </p>
-
-                {isMyTurn && turnState === 'playing' && !activePlayer.hasLaidDownThisRound && (
-                  <button
-                    onClick={handleToggleBuilder}
-                    className={`w-full py-2 rounded-lg text-xs font-medium border transition-colors ${
-                      isBuildingPhase
-                        ? 'bg-danger-muted/40 border-danger text-rose-300'
-                        : 'btn-primary hover:opacity-90 border-accent text-on-accent'
-                    }`}
-                  >
-                    {isBuildingPhase ? 'Fechar organizador' : `Organizar fase ${activePlayer.phase}`}
-                  </button>
-                )}
               </div>
 
             </div>
@@ -1867,11 +1854,27 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         
         {/* Sorting and State Actions */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-default/80 pb-3">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs uppercase font-bold tracking-wide text-muted">Sua Mão</span>
-            <span className="text-[11px] font-semibold bg-surface text-accent/90 border border-default px-2.5 py-0.5 rounded-full">
-              {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).length} cartas
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs uppercase font-bold tracking-wide text-muted">Sua Mão</span>
+              <span className="text-[11px] font-semibold bg-surface text-accent/90 border border-default px-2.5 py-0.5 rounded-full">
+                {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).length} cartas
+              </span>
+            </div>
+
+            {isMyTurn && turnState === 'playing' && !myPlayer.hasLaidDownThisRound && (
+              <button
+                onClick={handleToggleBuilder}
+                className={`px-3 py-1 rounded-md text-[10px] font-semibold border transition-colors cursor-pointer flex items-center gap-1 ${
+                  isBuildingPhase
+                    ? 'bg-danger-muted border-danger text-danger'
+                    : 'btn-primary hover:opacity-90 border-accent text-on-accent'
+                }`}
+              >
+                <Layers className="w-3 h-3" />
+                <span>{isBuildingPhase ? 'Fechar organizador' : `Organizar fase ${myPlayer.phase}`}</span>
+              </button>
+            )}
           </div>
 
           {/* Sorters */}

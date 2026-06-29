@@ -29,6 +29,12 @@ const COLORS = [
   '#f472b6', // pink
   '#fb923c', // orange
   '#2dd4bf', // teal
+  '#a3e635', // lime
+  '#f43f5e', // rose
+  '#818cf8', // indigo
+  '#14b8a6', // cyan
+  '#eab308', // amber
+  '#ec4899', // magenta
 ];
 
 const BOT_NAMES = [
