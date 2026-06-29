@@ -5,7 +5,34 @@ export type HandFanLayout = {
   zIndex: number;
 };
 
+export type HandSortMode = 'value' | 'color';
+
+type SortableCard = {
+  type: string;
+  value: number;
+  color: string;
+};
+
 const CARD_WIDTH_PX = 109; // 84px + 30%
+
+export function sortHandCards<T extends SortableCard>(cards: T[], mode: HandSortMode): T[] {
+  const sorted = [...cards];
+  if (mode === 'value') {
+    sorted.sort((a, b) => {
+      if (a.type === 'wild' && b.type !== 'wild') return 1;
+      if (b.type === 'wild' && a.type !== 'wild') return -1;
+      if (a.type === 'skip' && b.type !== 'skip') return 1;
+      if (b.type === 'skip' && a.type !== 'skip') return -1;
+      return a.value - b.value;
+    });
+  } else {
+    sorted.sort((a, b) => {
+      if (a.color === b.color) return a.value - b.value;
+      return a.color.localeCompare(b.color);
+    });
+  }
+  return sorted;
+}
 
 /** Largura visível ocupada pelo leque (px). */
 export function getHandFanSpreadWidth(total: number): number {

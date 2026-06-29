@@ -5,7 +5,7 @@ import {
   Award, AlertCircle, Volume2, VolumeX, Ban, Trash2, Wand2, Layers, Hand, User
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
-import { getHandFanLayout, getHandFanSpreadWidth } from '../lib/handFan';
+import { getHandFanLayout, getHandFanSpreadWidth, sortHandCards, type HandSortMode } from '../lib/handFan';
 import { cardPipClass } from '../lib/cards';
 import { 
   Card, Player, GameRoom, LaidDownPhase, GameLog, ChatMessage, STANDARD_PHASES 
@@ -61,6 +61,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const selectedHitCard = selectedCards.length > 0 ? selectedCards[0] : null;
 
   const clearCardSelection = () => setSelectedCards([]);
+
+  const [handSortMode, setHandSortMode] = useState<HandSortMode | null>(null);
 
   // Skip selector target modal
   const [skipCardPending, setSkipCardPending] = useState<Card | null>(null);
@@ -369,43 +371,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     return validatePhase(phaseDef.type, groups);
   };
 
-  // Auto-sort hand
-  const sortHand = (mode: 'value' | 'color') => {
+  const sortHand = (mode: HandSortMode) => {
     playSound('click');
-    setRoom(prev => {
-      const updatedPlayers = [...prev.players];
-      const playerIndex = isOnline
-        ? updatedPlayers.findIndex((p) => p.id === onlineSession?.memberId)
-        : prev.currentTurnIndex;
-      if (playerIndex < 0) return prev;
-      const playerHand = [...updatedPlayers[playerIndex].cards];
-
-      if (mode === 'value') {
-        playerHand.sort((a, b) => {
-          // Sort wild cards to the end
-          if (a.type === 'wild' && b.type !== 'wild') return 1;
-          if (b.type === 'wild' && a.type !== 'wild') return -1;
-          if (a.type === 'skip' && b.type !== 'skip') return 1;
-          if (b.type === 'skip' && a.type !== 'skip') return -1;
-          return a.value - b.value;
-        });
-      } else {
-        playerHand.sort((a, b) => {
-          if (a.color === b.color) return a.value - b.value;
-          return a.color.localeCompare(b.color);
-        });
-      }
-
-      updatedPlayers[playerIndex] = {
-        ...updatedPlayers[playerIndex],
-        cards: playerHand
-      };
-
-      return {
-        ...prev,
-        players: updatedPlayers
-      };
-    });
+    setHandSortMode(mode);
   };
 
   // ----------------------------------------------------
@@ -1908,17 +1876,64 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
           {/* Sorters */}
           {isMyTurn && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-end">
+              {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
+                <button
+                  onClick={() => handleDiscard(primarySelectedCard)}
+                  className="px-3 py-1 btn-danger font-semibold text-[10px] rounded-md cursor-pointer flex items-center gap-1"
+                >
+                  {primarySelectedCard.type === 'skip' ? (
+                    <><Ban className="w-3 h-3" /> Pular</>
+                  ) : (
+                    <><Trash2 className="w-3 h-3" /> Descartar</>
+                  )}
+                </button>
+              )}
+
+              {isBuildingPhase && selectedCards.length > 0 && (
+                <>
+                  <button
+                    onClick={() => addCardsToBuildGroup(selectedCards, 1)}
+                    className="px-3 py-1 btn-primary font-semibold text-[10px] rounded-md cursor-pointer"
+                  >
+                    {selectedCards.length > 1
+                      ? `Grupo 1 (${selectedCards.length})`
+                      : 'Grupo 1'}
+                  </button>
+
+                  {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
+                    STANDARD_PHASES.find(p => p.id === myPlayer.phase)?.type || ''
+                  ) && (
+                    <button
+                      onClick={() => addCardsToBuildGroup(selectedCards, 2)}
+                      className="px-3 py-1 bg-surface-muted hover:bg-surface-raised text-primary font-semibold text-[10px] rounded-md border border-default cursor-pointer"
+                    >
+                      {selectedCards.length > 1
+                        ? `Grupo 2 (${selectedCards.length})`
+                        : 'Grupo 2'}
+                    </button>
+                  )}
+                </>
+              )}
+
               <button
                 onClick={() => sortHand('value')}
-                className="px-3 py-1 bg-surface hover:bg-surface-raised text-secondary hover:text-primary rounded-md text-[10px] font-semibold border border-default transition-colors cursor-pointer flex items-center space-x-1"
+                className={`px-3 py-1 rounded-md text-[10px] font-semibold border transition-colors cursor-pointer flex items-center space-x-1 ${
+                  handSortMode === 'value'
+                    ? 'bg-accent-soft border-accent text-accent'
+                    : 'bg-surface hover:bg-surface-raised text-secondary hover:text-primary border-default'
+                }`}
               >
                 <span>123</span>
                 <span>Ordenar Valor</span>
               </button>
               <button
                 onClick={() => sortHand('color')}
-                className="px-3 py-1 bg-surface hover:bg-surface-raised text-secondary hover:text-primary rounded-md text-[10px] font-semibold border border-default transition-colors cursor-pointer flex items-center space-x-1"
+                className={`px-3 py-1 rounded-md text-[10px] font-semibold border transition-colors cursor-pointer flex items-center space-x-1 ${
+                  handSortMode === 'color'
+                    ? 'bg-accent-soft border-accent text-accent'
+                    : 'bg-surface hover:bg-surface-raised text-secondary hover:text-primary border-default'
+                }`}
               >
                 <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" />
                 <span className="w-2 h-2 rounded-full bg-accent shrink-0 -ml-1" />
@@ -1941,7 +1956,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             {/* Cards fan layout */}
             <div className="hand-fan">
               {(() => {
-                const visibleCards = myPlayer.cards.filter((c) => !c.id.startsWith('hidden-'));
+                const rawCards = myPlayer.cards.filter((c) => !c.id.startsWith('hidden-'));
+                const visibleCards = handSortMode
+                  ? sortHandCards(rawCards, handSortMode)
+                  : rawCards;
                 const total = visibleCards.length;
                 const fanWidth = getHandFanSpreadWidth(total);
                 return (
@@ -1957,7 +1975,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 const isS = card.type === 'skip';
                 const pipClass = cardPipClass(card.color);
                 const { translateX, rotate, zIndex } = getHandFanLayout(index, total);
-                const selectedLift = isSelected ? '-2rem' : '0px';
+                const selectedLift = isSelected ? '-2.5rem' : '0px';
 
                 return (
                   <button
@@ -2014,93 +2032,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 );
               })()}
             </div>
-
-            {/* Selected Card Action Drawer */}
-            {selectedCards.length > 0 && (
-              <div className="bg-app border border-default p-4 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center space-x-3 text-xs">
-                  {isBuildingPhase && selectedCards.length > 1 ? (
-                    <div>
-                      <span className="font-semibold text-muted block text-[10px]">Cartas selecionadas</span>
-                      <span className="text-sm font-semibold text-secondary">
-                        {selectedCards.length} cartas prontas para mover ao grupo
-                      </span>
-                    </div>
-                  ) : primarySelectedCard ? (
-                    <>
-                      <div
-                        className="w-8 h-12 rounded border flex items-center justify-center p-1"
-                        style={{ background: 'var(--card-face-bg)', borderColor: 'var(--card-face-border)' }}
-                      >
-                        {primarySelectedCard.type === 'wild' ? (
-                          <Wand2 className={`w-4 h-4 ${cardPipClass('wild')}`} />
-                        ) : primarySelectedCard.type === 'skip' ? (
-                          <Ban className={`w-4 h-4 ${cardPipClass('skip')}`} />
-                        ) : (
-                          <span className={`font-bold ${cardPipClass(primarySelectedCard.color)}`}>{primarySelectedCard.value}</span>
-                        )}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-muted block text-[10px]">Carta selecionada</span>
-                        <span className="text-sm font-semibold text-secondary">
-                          {primarySelectedCard.type === 'wild' ? 'Curinga (Wild Card)' : primarySelectedCard.type === 'skip' ? 'Skip (Pular Oponente)' : `${primarySelectedCard.value} de cor ${primarySelectedCard.color.toUpperCase()}`}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div>
-                      <span className="font-semibold text-muted block text-[10px]">Cartas selecionadas</span>
-                      <span className="text-sm font-semibold text-secondary">
-                        {selectedCards.length} cartas — selecione uma para descartar ou bater
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                  {isBuildingPhase && (
-                    <>
-                      <button
-                        onClick={() => addCardsToBuildGroup(selectedCards, 1)}
-                        disabled={selectedCards.length === 0}
-                        className="flex-1 sm:flex-initial px-4 py-2 btn-primary hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-xs rounded-lg cursor-pointer"
-                      >
-                        {selectedCards.length > 1
-                          ? `Mover ${selectedCards.length} para Grupo 1`
-                          : 'Mover para Grupo 1'}
-                      </button>
-
-                      {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
-                        STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.type || ''
-                      ) && (
-                        <button
-                          onClick={() => addCardsToBuildGroup(selectedCards, 2)}
-                          disabled={selectedCards.length === 0}
-                          className="flex-1 sm:flex-initial px-4 py-2 bg-surface-muted hover:bg-surface-raised disabled:opacity-40 disabled:cursor-not-allowed text-primary font-medium text-xs rounded-lg cursor-pointer"
-                        >
-                          {selectedCards.length > 1
-                            ? `Mover ${selectedCards.length} para Grupo 2`
-                            : 'Mover para Grupo 2'}
-                        </button>
-                      )}
-                    </>
-                  )}
-
-                  {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
-                    <button
-                      onClick={() => handleDiscard(primarySelectedCard)}
-                      className="flex-1 sm:flex-initial px-6 py-2 btn-danger font-medium text-xs rounded-lg cursor-pointer flex items-center justify-center gap-1.5"
-                    >
-                      {primarySelectedCard.type === 'skip' ? (
-                        <><Ban className="w-3.5 h-3.5" /> Pular oponente</>
-                      ) : (
-                        <><Trash2 className="w-3.5 h-3.5" /> Descartar</>
-                      )}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
 
           </div>
         )}
