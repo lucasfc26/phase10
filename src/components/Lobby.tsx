@@ -281,6 +281,7 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
     connectOnlineSocket(onlineSession.sessionToken, {
       onLobbyUpdate: (lobby) => {
         setRoomCode(lobby.code);
+        setAllowBotsToggle(lobby.allowBots);
         setLobbyPlayers(mapLobbyPlayersToGame(lobby.players));
         const connected = lobby.players.filter((p) => p.isConnected).length;
         setStatusMessage(

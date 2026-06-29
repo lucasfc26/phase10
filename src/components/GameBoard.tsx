@@ -55,8 +55,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const [buildGroup1, setBuildGroup1] = useState<Card[]>([]);
   const [buildGroup2, setBuildGroup2] = useState<Card[]>([]);
 
-  // Selected card in hand (for actions like discard, hit, or moving to builder)
-  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  // Selected cards in hand (multi-select in phase builder, single for discard/hit)
+  const [selectedCards, setSelectedCards] = useState<Card[]>([]);
+  const primarySelectedCard = selectedCards.length === 1 ? selectedCards[0] : null;
+  const selectedHitCard = selectedCards.length > 0 ? selectedCards[0] : null;
+
+  const clearCardSelection = () => setSelectedCards([]);
 
   // Skip selector target modal
   const [skipCardPending, setSkipCardPending] = useState<Card | null>(null);
@@ -346,7 +350,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       setIsBuildingPhase(false);
       setBuildGroup1([]);
       setBuildGroup2([]);
-      setSelectedCard(null);
+      clearCardSelection();
       setTurnState('idle');
     }
   }, [isOnline, onlineSession?.memberId, room.currentTurnIndex, room.status, room.players, room.hasDrawnThisTurn]);
@@ -464,7 +468,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     });
 
     setTurnState('playing');
-    setSelectedCard(null);
+    clearCardSelection();
   };
 
   // Discard card to end turn
@@ -494,7 +498,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         setIsBuildingPhase(false);
         setBuildGroup1([]);
         setBuildGroup2([]);
-        setSelectedCard(null);
+        clearCardSelection();
         setSkipCardPending(null);
         setShowSkipSelector(false);
         setTurnState('idle');
@@ -508,7 +512,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     setIsBuildingPhase(false);
     setBuildGroup1([]);
     setBuildGroup2([]);
-    setSelectedCard(null);
+    clearCardSelection();
 
     let roundEndResult: ReturnType<typeof evaluateRoundEnd> = null;
 
@@ -626,27 +630,56 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     playSound('click');
     setIsBuildingPhase(prev => {
       if (prev) {
-        // Recycle cards back to hand (though they never left hand, builder just tracks selections)
         setBuildGroup1([]);
         setBuildGroup2([]);
+        clearCardSelection();
       }
       return !prev;
     });
   };
 
-  const addCardToBuildGroup = (card: Card, groupNum: 1 | 2) => {
+  const addCardsToBuildGroup = (cards: Card[], groupNum: 1 | 2) => {
+    if (cards.length === 0) return;
     playSound('click');
+    const incomingIds = new Set(cards.map((c) => c.id));
+
     if (groupNum === 1) {
-      if (buildGroup1.some(c => c.id === card.id)) return;
-      // Remove from other group if it's there
-      setBuildGroup2(prev => prev.filter(c => c.id !== card.id));
-      setBuildGroup1(prev => [...prev, card]);
+      setBuildGroup2((prev) => prev.filter((c) => !incomingIds.has(c.id)));
+      setBuildGroup1((prev) => {
+        const existing = new Set(prev.map((c) => c.id));
+        return [...prev, ...cards.filter((c) => !existing.has(c.id))];
+      });
     } else {
-      if (buildGroup2.some(c => c.id === card.id)) return;
-      setBuildGroup1(prev => prev.filter(c => c.id !== card.id));
-      setBuildGroup2(prev => [...prev, card]);
+      setBuildGroup1((prev) => prev.filter((c) => !incomingIds.has(c.id)));
+      setBuildGroup2((prev) => {
+        const existing = new Set(prev.map((c) => c.id));
+        return [...prev, ...cards.filter((c) => !existing.has(c.id))];
+      });
     }
-    setSelectedCard(null);
+    clearCardSelection();
+  };
+
+  const addCardToBuildGroup = (card: Card, groupNum: 1 | 2) => {
+    addCardsToBuildGroup([card], groupNum);
+  };
+
+  const handleHandCardClick = (card: Card) => {
+    if (!isMyTurn) return;
+    playSound('click');
+
+    if (isBuildingPhase) {
+      setSelectedCards((prev) => {
+        const exists = prev.some((c) => c.id === card.id);
+        if (exists) return prev.filter((c) => c.id !== card.id);
+        return [...prev, card];
+      });
+      return;
+    }
+
+    setSelectedCards((prev) => {
+      const exists = prev.some((c) => c.id === card.id);
+      return exists ? [] : [card];
+    });
   };
 
   const removeCardFromBuildGroup = (cardId: string, groupNum: 1 | 2) => {
@@ -677,7 +710,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         setIsBuildingPhase(false);
         setBuildGroup1([]);
         setBuildGroup2([]);
-        setSelectedCard(null);
+        clearCardSelection();
       });
       return;
     }
@@ -738,7 +771,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     setIsBuildingPhase(false);
     setBuildGroup1([]);
     setBuildGroup2([]);
-    setSelectedCard(null);
+    clearCardSelection();
 
     // Bot banter
     if (room.settings.gameMode === 'bots') {
@@ -750,7 +783,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // HIT ACTIONS
   // ----------------------------------------------------
   const handleHitCard = (targetPlayerId: string, groupIndex: number) => {
-    if (!isMyTurn || turnState !== 'playing' || !selectedCard) return;
+    if (!isMyTurn || turnState !== 'playing' || !selectedHitCard) return;
     if (!activePlayer.hasLaidDownThisRound) {
       alert("Você precisa baixar a sua própria fase antes de poder bater nas fases dos adversários!");
       return;
@@ -768,7 +801,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     const category = categories[groupIndex] || 'Grupo';
 
     // Validate if hit is allowed
-    if (!isValidHit(selectedCard, group, category)) {
+    if (!isValidHit(selectedHitCard, group, category)) {
       alert(`Esta carta não se encaixa neste grupo (${category}).`);
       return;
     }
@@ -779,11 +812,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     if (isOnline) {
       sendOnlineAction({
         type: 'hit',
-        cardId: selectedCard.id,
+        cardId: selectedHitCard.id,
         targetPlayerId,
         groupIndex,
       }, () => {
-        setSelectedCard(null);
+        clearCardSelection();
       });
       return;
     }
@@ -795,7 +828,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       // 1. Remove card from player hand
       const updatedPlayers = prev.players.map((p, idx) => {
         if (idx === prev.currentTurnIndex) {
-          const remHand = p.cards.filter(c => c.id !== selectedCard.id);
+          const remHand = p.cards.filter(c => c.id !== selectedHitCard.id);
           return { ...p, cards: remHand };
         }
         return p;
@@ -806,7 +839,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         if (layoutItem.playerId === targetPlayerId) {
           const updatedGroups = layoutItem.groups.map((grp, gIdx) => {
             if (gIdx === groupIndex) {
-              return [...grp, selectedCard];
+              return [...grp, selectedHitCard];
             }
             return grp;
           });
@@ -825,9 +858,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       };
     });
 
-    const cardDesc = selectedCard.type === 'wild' ? 'Curinga' : `${selectedCard.value} (${selectedCard.color})`;
+    const cardDesc = selectedHitCard.type === 'wild' ? 'Curinga' : `${selectedHitCard.value} (${selectedHitCard.color})`;
     addLog(`${activePlayer.avatar} ${activePlayer.name} bateu com ${cardDesc} na fase de ${layout.playerName}!`, 'success');
-    setSelectedCard(null);
+    clearCardSelection();
 
     const endResult = evaluateRoundEnd(playersAfterHit, laidDownAfterHit, {
       drawPile: room.drawPile,
@@ -1519,7 +1552,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                               })}
 
                               {/* Hit button overlay if a card is selected */}
-                              {isMyTurn && turnState === 'playing' && selectedCard && activePlayer.hasLaidDownThisRound && (
+                              {isMyTurn && turnState === 'playing' && selectedHitCard && activePlayer.hasLaidDownThisRound && !isBuildingPhase && (
                                 <button
                                   onClick={() => handleHitCard(layout.playerId, grpIdx)}
                                   className="w-10 h-12 bg-emerald-600 hover:bg-emerald-500 border border-success text-white rounded-md shrink-0 flex flex-col items-center justify-center font-bold text-[9px] cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
@@ -1917,7 +1950,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 style={{ ['--fan-width' as string]: `${fanWidth}px` }}
               >
               {visibleCards.map((card, index) => {
-                const isSelected = selectedCard?.id === card.id;
+                const isSelected = selectedCards.some((c) => c.id === card.id);
                 const isInGroup1 = buildGroup1.some(c => c.id === card.id);
                 const isInGroup2 = buildGroup2.some(c => c.id === card.id);
                 const isW = card.type === 'wild';
@@ -1930,7 +1963,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                   <button
                     key={card.id}
                     disabled={!isMyTurn}
-                    onClick={() => { if (!isMyTurn) return; playSound('click'); setSelectedCard(isSelected ? null : card); }}
+                    onClick={() => handleHandCardClick(card)}
                     className={`hand-fan__card playing-card text-left ${
                       isW ? 'playing-card--wild' : isS ? 'playing-card--skip' : ''
                     } ${isSelected ? 'playing-card--selected' : ''} ${
@@ -1983,60 +2016,82 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             </div>
 
             {/* Selected Card Action Drawer */}
-            {selectedCard && (
+            {selectedCards.length > 0 && (
               <div className="bg-app border border-default p-4 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center space-x-3 text-xs">
-                  <div
-                    className="w-8 h-12 rounded border flex items-center justify-center p-1"
-                    style={{ background: 'var(--card-face-bg)', borderColor: 'var(--card-face-border)' }}
-                  >
-                    {selectedCard.type === 'wild' ? (
-                      <Wand2 className={`w-4 h-4 ${cardPipClass('wild')}`} />
-                    ) : selectedCard.type === 'skip' ? (
-                      <Ban className={`w-4 h-4 ${cardPipClass('skip')}`} />
-                    ) : (
-                      <span className={`font-bold ${cardPipClass(selectedCard.color)}`}>{selectedCard.value}</span>
-                    )}
-                  </div>
-                  <div>
-                    <span className="font-semibold text-muted block text-[10px]">Carta selecionada</span>
-                    <span className="text-sm font-semibold text-secondary">
-                      {selectedCard.type === 'wild' ? 'Curinga (Wild Card)' : selectedCard.type === 'skip' ? 'Skip (Pular Oponente)' : `${selectedCard.value} de cor ${selectedCard.color.toUpperCase()}`}
-                    </span>
-                  </div>
+                  {isBuildingPhase && selectedCards.length > 1 ? (
+                    <div>
+                      <span className="font-semibold text-muted block text-[10px]">Cartas selecionadas</span>
+                      <span className="text-sm font-semibold text-secondary">
+                        {selectedCards.length} cartas prontas para mover ao grupo
+                      </span>
+                    </div>
+                  ) : primarySelectedCard ? (
+                    <>
+                      <div
+                        className="w-8 h-12 rounded border flex items-center justify-center p-1"
+                        style={{ background: 'var(--card-face-bg)', borderColor: 'var(--card-face-border)' }}
+                      >
+                        {primarySelectedCard.type === 'wild' ? (
+                          <Wand2 className={`w-4 h-4 ${cardPipClass('wild')}`} />
+                        ) : primarySelectedCard.type === 'skip' ? (
+                          <Ban className={`w-4 h-4 ${cardPipClass('skip')}`} />
+                        ) : (
+                          <span className={`font-bold ${cardPipClass(primarySelectedCard.color)}`}>{primarySelectedCard.value}</span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-muted block text-[10px]">Carta selecionada</span>
+                        <span className="text-sm font-semibold text-secondary">
+                          {primarySelectedCard.type === 'wild' ? 'Curinga (Wild Card)' : primarySelectedCard.type === 'skip' ? 'Skip (Pular Oponente)' : `${primarySelectedCard.value} de cor ${primarySelectedCard.color.toUpperCase()}`}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <span className="font-semibold text-muted block text-[10px]">Cartas selecionadas</span>
+                      <span className="text-sm font-semibold text-secondary">
+                        {selectedCards.length} cartas — selecione uma para descartar ou bater
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                  {/* If builder is active, offer placement options */}
                   {isBuildingPhase && (
                     <>
                       <button
-                        onClick={() => addCardToBuildGroup(selectedCard, 1)}
-                        className="flex-1 sm:flex-initial px-4 py-2 btn-primary hover:opacity-90 text-white font-medium text-xs rounded-lg cursor-pointer"
+                        onClick={() => addCardsToBuildGroup(selectedCards, 1)}
+                        disabled={selectedCards.length === 0}
+                        className="flex-1 sm:flex-initial px-4 py-2 btn-primary hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-xs rounded-lg cursor-pointer"
                       >
-                        Mover para Grupo 1
+                        {selectedCards.length > 1
+                          ? `Mover ${selectedCards.length} para Grupo 1`
+                          : 'Mover para Grupo 1'}
                       </button>
 
                       {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
                         STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.type || ''
                       ) && (
                         <button
-                          onClick={() => addCardToBuildGroup(selectedCard, 2)}
-                          className="flex-1 sm:flex-initial px-4 py-2 bg-surface-muted hover:bg-surface-raised text-primary font-medium text-xs rounded-lg cursor-pointer"
+                          onClick={() => addCardsToBuildGroup(selectedCards, 2)}
+                          disabled={selectedCards.length === 0}
+                          className="flex-1 sm:flex-initial px-4 py-2 bg-surface-muted hover:bg-surface-raised disabled:opacity-40 disabled:cursor-not-allowed text-primary font-medium text-xs rounded-lg cursor-pointer"
                         >
-                          Mover para Grupo 2
+                          {selectedCards.length > 1
+                            ? `Mover ${selectedCards.length} para Grupo 2`
+                            : 'Mover para Grupo 2'}
                         </button>
                       )}
                     </>
                   )}
 
-                  {/* Discard Action */}
-                  {turnState === 'playing' && (
+                  {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
                     <button
-                      onClick={() => handleDiscard(selectedCard)}
+                      onClick={() => handleDiscard(primarySelectedCard)}
                       className="flex-1 sm:flex-initial px-6 py-2 btn-danger font-medium text-xs rounded-lg cursor-pointer flex items-center justify-center gap-1.5"
                     >
-                      {selectedCard.type === 'skip' ? (
+                      {primarySelectedCard.type === 'skip' ? (
                         <><Ban className="w-3.5 h-3.5" /> Pular oponente</>
                       ) : (
                         <><Trash2 className="w-3.5 h-3.5" /> Descartar</>

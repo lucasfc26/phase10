@@ -123,7 +123,7 @@ export class RoomsService {
         gameMode: 'online',
         botDelay: DEFAULT_BOT_DELAY_MS,
         customPhases: false,
-        allowBots: dto.allowBots ?? false,
+        allowBots: dto.allowBots ?? true,
       },
       roundNumber: 1,
       lastActivityAt: new Date(),

@@ -27,6 +27,7 @@ export interface LobbyState {
   hostMemberId: string;
   players: LobbyPlayer[];
   hasPassword: boolean;
+  allowBots: boolean;
 }
 
 export interface PublicRoom {

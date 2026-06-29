@@ -70,11 +70,19 @@ export function emitRoomLeave() {
 }
 
 export function emitGameStart(onResult?: (result: { ok?: boolean; error?: string }) => void) {
-  socket?.emit('game:start', {}, onResult);
+  if (!socket?.connected) {
+    onResult?.({ error: 'Sem conexão com o servidor. Aguarde a conexão e tente novamente.' });
+    return;
+  }
+  socket.emit('game:start', {}, onResult);
 }
 
 export function emitLobbyAddBot(onResult?: (result: { ok?: boolean; error?: string }) => void) {
-  socket?.emit('lobby:add_bot', {}, onResult);
+  if (!socket?.connected) {
+    onResult?.({ error: 'Sem conexão com o servidor. Aguarde a conexão e tente novamente.' });
+    return;
+  }
+  socket.emit('lobby:add_bot', {}, onResult);
 }
 
 export function emitLobbyRemoveBot(
