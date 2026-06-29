@@ -7,23 +7,40 @@ export type OnlineSocketCallbacks = {
   onLobbyUpdate?: (lobby: LobbyState) => void;
   onGameState?: (room: GameRoom) => void;
   onGameLog?: (log: GameLog) => void;
+  onRoomDeleted?: (payload: { roomId: string; reason: string }) => void;
 };
 
 let socket: Socket | null = null;
+let activeToken: string | null = null;
+
+function registerHandlers(sock: Socket, callbacks: OnlineSocketCallbacks) {
+  sock.off('lobby:update');
+  sock.off('game:state');
+  sock.off('game:log');
+  sock.off('room:deleted');
+  sock.on('lobby:update', (lobby: LobbyState) => callbacks.onLobbyUpdate?.(lobby));
+  sock.on('game:state', (room: GameRoom) => callbacks.onGameState?.(room));
+  sock.on('game:log', (log: GameLog) => callbacks.onGameLog?.(log));
+  sock.on('room:deleted', (payload: { roomId: string; reason: string }) =>
+    callbacks.onRoomDeleted?.(payload),
+  );
+}
 
 export function connectOnlineSocket(sessionToken: string, callbacks: OnlineSocketCallbacks): Socket {
-  if (socket?.connected) {
-    socket.disconnect();
+  if (socket?.connected && activeToken === sessionToken) {
+    registerHandlers(socket, callbacks);
+    return socket;
   }
 
+  socket?.disconnect();
+
+  activeToken = sessionToken;
   socket = io(`${WS_BASE_URL}/game`, {
     auth: { token: sessionToken },
     transports: ['websocket', 'polling'],
   });
 
-  socket.on('lobby:update', (lobby: LobbyState) => callbacks.onLobbyUpdate?.(lobby));
-  socket.on('game:state', (room: GameRoom) => callbacks.onGameState?.(room));
-  socket.on('game:log', (log: GameLog) => callbacks.onGameLog?.(log));
+  registerHandlers(socket, callbacks);
 
   return socket;
 }
@@ -35,12 +52,38 @@ export function getOnlineSocket(): Socket | null {
 export function disconnectOnlineSocket() {
   socket?.disconnect();
   socket = null;
+  activeToken = null;
 }
 
-export function emitGameStart() {
-  socket?.emit('game:start');
+export function getRoomDeletedMessage(reason: string): string {
+  if (reason === 'inactive') {
+    return 'A sala foi encerrada por inatividade (1 hora sem jogadas).';
+  }
+  return 'O host saiu. A sala foi encerrada.';
 }
 
-export function emitGameAction(action: Record<string, unknown>) {
-  socket?.emit('game:action', action);
+export function emitRoomLeave() {
+  if (socket?.connected) {
+    socket.emit('room:leave');
+  }
+  disconnectOnlineSocket();
+}
+
+export function emitGameStart(onResult?: (result: { ok?: boolean; error?: string }) => void) {
+  socket?.emit('game:start', {}, onResult);
+}
+
+export function emitAddBot(onResult?: (result: { ok?: boolean; error?: string }) => void) {
+  socket?.emit('lobby:add_bot', {}, onResult);
+}
+
+export function emitRemoveBot(botMemberId: string, onResult?: (result: { ok?: boolean; error?: string }) => void) {
+  socket?.emit('lobby:remove_bot', { botMemberId }, onResult);
+}
+
+export function emitGameAction(
+  action: Record<string, unknown>,
+  onResult?: (result: { ok?: boolean; error?: string; room?: GameRoom }) => void,
+) {
+  socket?.emit('game:action', action, onResult);
 }

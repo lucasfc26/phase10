@@ -8,6 +8,10 @@ import {
 } from '../common/game.types';
 import {
   advanceToNextPlayer,
+  botChooseDiscard,
+  botFindHits,
+  botShouldDrawFromDiscard,
+  botTryToFormPhase,
   calculateHandScore,
   ensureActivePlayerNotSkipped,
   evaluateRoundEnd,
@@ -48,6 +52,7 @@ export class GameService {
       laidDownPhases: [],
       roundNumber: 1,
       winnerId: null,
+      hasDrawnThisTurn: false,
       settings,
     };
   }
@@ -97,6 +102,7 @@ export class GameService {
       discardPile,
       laidDownPhases: [],
       currentTurnIndex: 0,
+      hasDrawnThisTurn: false,
     };
   }
 
@@ -126,6 +132,9 @@ export class GameService {
     if (action.type === 'next_round') {
       if (gameRoom.status !== 'round_end') {
         throw new BadRequestException('A rodada ainda não terminou.');
+      }
+      if (memberId !== gameRoom.hostId) {
+        throw new ForbiddenException('Apenas o host pode iniciar a próxima rodada.');
       }
       const next = {
         ...gameRoom,
@@ -174,13 +183,123 @@ export class GameService {
         if (!action.cardId || !action.targetPlayerId || action.groupIndex === undefined) {
           throw new BadRequestException('Dados de hit incompletos.');
         }
-        return { ...this.processHit(gameRoom, action.cardId, action.targetPlayerId, action.groupIndex), skipLogs };
+        return {
+          ...this.processHit(
+            gameRoom,
+            action.cardId,
+            action.targetPlayerId,
+            Number(action.groupIndex),
+          ),
+          skipLogs,
+        };
       default:
         throw new BadRequestException('Ação inválida.');
     }
   }
 
+  executeBotTurn(gameRoom: GameRoom): {
+    gameRoom: GameRoom;
+    logs: Array<{ id: string; message: string; type: string; timestamp: string }>;
+  } {
+    const logs: Array<{ id: string; message: string; type: string; timestamp: string }> = [];
+    const ts = () => new Date().toLocaleTimeString();
+    const logId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    if (gameRoom.status !== 'playing') return { gameRoom, logs };
+
+    const resolved = ensureActivePlayerNotSkipped(gameRoom.players, gameRoom.currentTurnIndex);
+    for (const p of resolved.skippedPlayers) {
+      logs.push({
+        id: logId(),
+        message: `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`,
+        type: 'warning',
+        timestamp: ts(),
+      });
+    }
+    let state: GameRoom = {
+      ...gameRoom,
+      players: resolved.players,
+      currentTurnIndex: resolved.currentTurnIndex,
+    };
+
+    const bot = state.players[state.currentTurnIndex];
+    if (!bot?.isBot) return { gameRoom: state, logs };
+
+    const topDiscard = state.discardPile[state.discardPile.length - 1];
+    const drawSource =
+      topDiscard && botShouldDrawFromDiscard(bot, topDiscard) ? 'discard' : 'draw';
+    const drawResult = this.processDraw(state, drawSource);
+    state = drawResult.gameRoom;
+    logs.push({ id: logId(), message: drawResult.log, type: 'action', timestamp: ts() });
+
+    if (state.status !== 'playing') return { gameRoom: state, logs };
+
+    let activeBot = state.players[state.currentTurnIndex];
+    if (!activeBot.hasLaidDownThisRound) {
+      const botGroups = botTryToFormPhase(activeBot);
+      if (botGroups) {
+        const g1 = botGroups[0]?.map((c) => c.id) || [];
+        const g2 = botGroups[1]?.map((c) => c.id) || [];
+        const layResult = this.processLayDown(state, g1, g2);
+        state = layResult.gameRoom;
+        logs.push({
+          id: logId(),
+          message: layResult.log || `✨ ${activeBot.name} baixou a fase!`,
+          type: layResult.logType || 'success',
+          timestamp: ts(),
+        });
+        if (state.status !== 'playing') return { gameRoom: state, logs };
+        activeBot = state.players[state.currentTurnIndex];
+      }
+    }
+
+    const hits = botFindHits(state.players[state.currentTurnIndex], state.laidDownPhases);
+    for (const hit of hits) {
+      const hitResult = this.processHit(state, hit.cardId, hit.targetPlayerId, hit.groupIndex);
+      state = hitResult.gameRoom;
+      logs.push({
+        id: logId(),
+        message: hitResult.log || `${bot.name} bateu uma carta.`,
+        type: hitResult.logType || 'success',
+        timestamp: ts(),
+      });
+      if (state.status !== 'playing') return { gameRoom: state, logs };
+    }
+
+    activeBot = state.players[state.currentTurnIndex];
+    const discardCard = botChooseDiscard(activeBot);
+    let skipPlayerId: string | null = null;
+    if (discardCard.type === 'skip') {
+      const opponents = state.players.filter((p) => p.id !== bot.id && !p.isSkipped);
+      if (opponents.length > 0) {
+        const sorted = [...opponents].sort((a, b) => {
+          if (b.phase !== a.phase) return b.phase - a.phase;
+          return a.score - b.score;
+        });
+        skipPlayerId = sorted[0].id;
+      }
+    }
+
+    const discardResult = this.processDiscard(state, discardCard.id, skipPlayerId);
+    state = discardResult.gameRoom;
+    logs.push({
+      id: logId(),
+      message: discardResult.log,
+      type: discardResult.logType || 'action',
+      timestamp: ts(),
+    });
+    for (const skipLog of discardResult.skipLogs || []) {
+      logs.push({ id: logId(), message: skipLog, type: 'warning', timestamp: ts() });
+    }
+
+    return { gameRoom: state, logs };
+  }
+
   private processDraw(gameRoom: GameRoom, source: 'draw' | 'discard'): { gameRoom: GameRoom; log: string } {
+    if (gameRoom.hasDrawnThisTurn) {
+      throw new BadRequestException('Você já comprou uma carta neste turno.');
+    }
+
     const drawPile = [...gameRoom.drawPile];
     const discardPile = [...gameRoom.discardPile];
     const players = [...gameRoom.players];
@@ -207,7 +326,7 @@ export class GameService {
     players[idx] = { ...players[idx], cards: hand };
 
     return {
-      gameRoom: { ...gameRoom, drawPile, discardPile, players },
+      gameRoom: { ...gameRoom, drawPile, discardPile, players, hasDrawnThisTurn: true },
       log: `${players[idx].avatar} ${players[idx].name} comprou uma carta.`,
     };
   }
@@ -262,6 +381,7 @@ export class GameService {
       ...next,
       players: advanced.players,
       currentTurnIndex: advanced.currentTurnIndex,
+      hasDrawnThisTurn: false,
     };
 
     const skipMessages = advanced.skippedPlayers.map(
@@ -282,11 +402,30 @@ export class GameService {
     const phaseDef = STANDARD_PHASES.find((p) => p.id === active.phase);
     if (!phaseDef) throw new BadRequestException('Fase inválida.');
 
+    if (!gameRoom.hasDrawnThisTurn) {
+      throw new BadRequestException('Compre uma carta antes de baixar a fase.');
+    }
+
     const allIds = [...group1Ids, ...group2Ids];
-    const groups = [
-      group1Ids.map((id) => active.cards.find((c) => c.id === id)).filter(Boolean) as Card[],
-      group2Ids.map((id) => active.cards.find((c) => c.id === id)).filter(Boolean) as Card[],
-    ].filter((g) => g.length > 0);
+    if (allIds.length === 0) {
+      throw new BadRequestException('Nenhuma carta selecionada para baixar.');
+    }
+
+    const missingIds = allIds.filter((id) => !active.cards.some((c) => c.id === id));
+    if (missingIds.length > 0) {
+      throw new BadRequestException('Uma ou mais cartas não estão na sua mão.');
+    }
+
+    const g1 = group1Ids
+      .map((id) => active.cards.find((c) => c.id === id))
+      .filter(Boolean) as Card[];
+    const g2 = group2Ids
+      .map((id) => active.cards.find((c) => c.id === id))
+      .filter(Boolean) as Card[];
+
+    const groups: Card[][] = [];
+    if (g1.length > 0) groups.push(g1);
+    if (g2.length > 0) groups.push(g2);
 
     const validation = validatePhase(phaseDef.type, groups);
     if (!validation.isValid) throw new BadRequestException(validation.error || 'Fase inválida.');
@@ -340,6 +479,14 @@ export class GameService {
     const active = gameRoom.players[idx];
     if (!active.hasLaidDownThisRound) {
       throw new BadRequestException('Baixe sua fase antes de bater.');
+    }
+
+    if (!gameRoom.hasDrawnThisTurn) {
+      throw new BadRequestException('Compre uma carta antes de bater.');
+    }
+
+    if (Number.isNaN(groupIndex) || groupIndex < 0) {
+      throw new BadRequestException('Grupo alvo inválido.');
     }
 
     const card = active.cards.find((c) => c.id === cardId);
@@ -419,6 +566,10 @@ export class GameService {
   }
 
   deserialize(json: string): GameRoom {
-    return JSON.parse(json) as GameRoom;
+    const room = JSON.parse(json) as GameRoom;
+    if (room.hasDrawnThisTurn === undefined) {
+      room.hasDrawnThisTurn = false;
+    }
+    return room;
   }
 }

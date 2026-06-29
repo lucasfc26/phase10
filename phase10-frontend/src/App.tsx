@@ -5,7 +5,7 @@ import { GameBoard } from './components/GameBoard';
 import { RulesModal } from './components/RulesModal';
 import { BookOpen, Sparkles, Layers, Shield, Play } from 'lucide-react';
 import { RoomSession } from './services/onlineApi';
-import { disconnectOnlineSocket } from './services/onlineSocket';
+import { disconnectOnlineSocket, emitRoomLeave } from './services/onlineSocket';
 
 function App() {
   const [activeRoom, setActiveRoom] = useState<GameRoom | null>(null);
@@ -24,7 +24,7 @@ function App() {
   };
 
   const handleExitGame = () => {
-    disconnectOnlineSocket();
+    emitRoomLeave();
     setActiveRoom(null);
     setPlayerProfile(null);
     setOnlineSession(null);

@@ -276,6 +276,24 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     ? room.players[room.currentTurnIndex]?.id === onlineSession?.memberId && !showTransition
     : activePlayer && !activePlayer.isBot && !showTransition;
 
+  // Sincroniza turno no modo online quando o servidor atualiza currentTurnIndex
+  useEffect(() => {
+    if (!isOnline || !onlineSession || room.status !== 'playing') return;
+
+    const active = room.players[room.currentTurnIndex];
+    if (!active) return;
+
+    if (active.id === onlineSession.memberId && !active.isSkipped) {
+      setTurnState((prev) => (prev === 'playing' ? 'playing' : 'drawing'));
+    } else {
+      setIsBuildingPhase(false);
+      setBuildGroup1([]);
+      setBuildGroup2([]);
+      setSelectedCard(null);
+      setTurnState('idle');
+    }
+  }, [isOnline, onlineSession?.memberId, room.currentTurnIndex, room.status, room.players]);
+
   // Is Phase builder complete/valid?
   const checkBuilderValidity = (): { isValid: boolean; error?: string } => {
     const builderPlayer = isOnline ? myPlayer : activePlayer;

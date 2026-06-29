@@ -6,7 +6,7 @@ import {
 import { GameRoom, Player } from '../types';
 import { generateId } from '../gameEngine';
 import { onlineApi, LobbyPlayer, PublicRoom, RoomSession } from '../services/onlineApi';
-import { connectOnlineSocket, emitGameStart } from '../services/onlineSocket';
+import { connectOnlineSocket, emitGameStart, emitRoomLeave } from '../services/onlineSocket';
 
 interface LobbyProps {
   onStartGame: (
@@ -834,6 +834,10 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
           <div className="border-t border-slate-850 pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <button
               onClick={() => {
+                if (gameMode === 'online') {
+                  emitRoomLeave();
+                  setOnlineSession(null);
+                }
                 setLobbyPlayers([]);
                 setStep('room_setup');
               }}

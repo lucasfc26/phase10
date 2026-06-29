@@ -6,7 +6,7 @@ import {
 import { GameRoom, Player } from '../types';
 import { generateId } from '../gameEngine';
 import { onlineApi, LobbyPlayer, PublicRoom, RoomSession } from '../services/onlineApi';
-import { connectOnlineSocket, emitGameStart } from '../services/onlineSocket';
+import { connectOnlineSocket, emitAddBot, emitGameStart, emitRemoveBot, emitRoomLeave, disconnectOnlineSocket, getRoomDeletedMessage } from '../services/onlineSocket';
 
 interface LobbyProps {
   onStartGame: (
@@ -145,6 +145,7 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
 
         setOnlineSession(result.session);
         setRoomCode(result.lobby.code);
+        setAllowBotsToggle(result.lobby.allowBots);
         setLobbyPlayers(mapLobbyPlayersToGame(result.lobby.players));
         setStatusMessage(
           isOnlineRoleHost
@@ -274,11 +275,21 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
     connectOnlineSocket(onlineSession.sessionToken, {
       onLobbyUpdate: (lobby) => {
         setRoomCode(lobby.code);
+        setAllowBotsToggle(lobby.allowBots);
         setLobbyPlayers(mapLobbyPlayersToGame(lobby.players));
-        const connected = lobby.players.filter((p) => p.isConnected).length;
+        const present = lobby.players.filter((p) => p.isBot || p.isConnected).length;
         setStatusMessage(
-          `Sala ${lobby.code}: ${lobby.players.length}/${lobby.maxPlayers} jogadores (${connected} online).`,
+          `Sala ${lobby.code}: ${present}/${lobby.maxPlayers} jogadores (${lobby.players.filter((p) => p.isConnected).length} online).`,
         );
+      },
+      onRoomDeleted: (payload) => {
+        const message = getRoomDeletedMessage(payload.reason);
+        disconnectOnlineSocket();
+        setOnlineSession(null);
+        setLobbyPlayers([]);
+        setStep('room_setup');
+        setStatusMessage(message);
+        alert(message);
       },
       onGameState: (room) => {
         onStartGame(room, profile, onlineSession);
@@ -288,13 +299,35 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
 
   // Handle manual removal of player/bot from lobby slots (local modes only)
   const handleRemovePlayer = (id: string) => {
+    if (gameMode === 'online') {
+      if (!onlineSession?.isHost) return;
+      emitRemoveBot(id, (result) => {
+        if (result?.error) alert(result.error);
+      });
+      return;
+    }
     setLobbyPlayers(prev => prev.filter(p => p.id !== id));
   };
+
+  const canManageBots =
+    allowBotsToggle && (gameMode !== 'online' || !!onlineSession?.isHost);
 
   // Handle manual adding of a BOT to Lobby list
   const handleAddManualBot = () => {
     if (lobbyPlayers.length >= maxPlayers) {
       alert(`A sala já atingiu o limite de ${maxPlayers} jogadores.`);
+      return;
+    }
+
+    if (gameMode === 'online') {
+      if (!onlineSession?.isHost) {
+        alert('Apenas o host pode adicionar bots.');
+        return;
+      }
+      emitAddBot((result) => {
+        if (result?.error) alert(result.error);
+        else setStatusMessage('🤖 Um Bot de Inteligência Artificial foi adicionado ao lobby!');
+      });
       return;
     }
 
@@ -315,7 +348,9 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
         alert('Apenas o host da sala pode iniciar a partida.');
         return;
       }
-      emitGameStart();
+      emitGameStart((result) => {
+        if (result?.error) alert(result.error);
+      });
       return;
     }
 
@@ -780,8 +815,8 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
                   </div>
                 </div>
 
-                {/* Kick/Remove control buttons. First index is client/host (cannot remove self) */}
-                {idx > 0 && gameMode !== 'online' && (
+                {/* Kick/Remove control: local modes or host removing bots online */}
+                {idx > 0 && (gameMode !== 'online' || (onlineSession?.isHost && p.isBot)) && (
                   <button
                     onClick={() => handleRemovePlayer(p.id)}
                     className="p-1.5 hover:bg-rose-950/30 border border-slate-850 hover:border-rose-900/60 rounded-lg text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
@@ -809,8 +844,8 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
                   </div>
                 </div>
 
-                {/* Trigger to manually add a bot to this spot if bots are allowed */}
-                {allowBotsToggle && (
+                {/* Trigger to manually add a bot to this spot if bots are allowed (host only online) */}
+                {canManageBots && (
                   <button
                     onClick={handleAddManualBot}
                     className="px-2.5 py-1.5 bg-purple-950/40 hover:bg-purple-900/40 border border-purple-900/30 hover:border-purple-500 rounded-lg text-[10px] font-extrabold text-purple-400 hover:text-purple-300 transition-all flex items-center space-x-1 cursor-pointer"
@@ -834,6 +869,10 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
           <div className="border-t border-slate-850 pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
             <button
               onClick={() => {
+                if (gameMode === 'online') {
+                  emitRoomLeave();
+                  setOnlineSession(null);
+                }
                 setLobbyPlayers([]);
                 setStep('room_setup');
               }}

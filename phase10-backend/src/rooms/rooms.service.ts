@@ -67,7 +67,7 @@ export class RoomsService {
         id: room.id,
         code: room.code,
         hostName: host?.name || 'Host',
-        playerCount: room.members?.length || 0,
+        playerCount: room.members?.filter((m) => m.isBot || m.isConnected).length || 0,
         maxPlayers: room.maxPlayers,
         hasPassword: !!room.passwordHash,
         status: room.status,
@@ -94,6 +94,7 @@ export class RoomsService {
         allowBots: dto.allowBots ?? false,
       },
       roundNumber: 1,
+      lastActivityAt: new Date(),
     });
 
     const savedRoom = await this.roomRepo.save(room);
@@ -112,6 +113,8 @@ export class RoomsService {
 
     await this.memberRepo.save(member);
 
+    await this.touchRoomActivity(savedRoom.id);
+
     const lobby = await this.getLobbyState(savedRoom.id);
     return { session: this.toSession(savedRoom, member), lobby };
   }
@@ -123,15 +126,35 @@ export class RoomsService {
     });
 
     if (!room) throw new NotFoundException('Sala não encontrada.');
-    if (room.status !== 'lobby') throw new BadRequestException('A partida já começou.');
-    if ((room.members?.length || 0) >= room.maxPlayers) {
-      throw new BadRequestException('Sala cheia.');
-    }
 
     if (room.passwordHash) {
       if (!dto.password) throw new ForbiddenException('Senha obrigatória.');
       const ok = await bcrypt.compare(dto.password, room.passwordHash);
       if (!ok) throw new ForbiddenException('Senha incorreta.');
+    }
+
+    const normalizedName = dto.name.trim().toLowerCase();
+
+    // Reconectar jogador que saiu (mesmo nome, desconectado)
+    const existingDisconnected = room.members?.find(
+      (m) => !m.isConnected && m.name.trim().toLowerCase() === normalizedName,
+    );
+    if (existingDisconnected) {
+      if (room.status !== 'lobby') {
+        throw new BadRequestException('A partida já começou. Não é possível reconectar com novo cadastro.');
+      }
+      existingDisconnected.sessionToken = uuidv4();
+      existingDisconnected.avatar = dto.avatar;
+      existingDisconnected.color = dto.color;
+      await this.memberRepo.save(existingDisconnected);
+      await this.touchRoomActivity(room.id);
+      const lobby = await this.getLobbyState(room.id);
+      return { session: this.toSession(room, existingDisconnected), lobby };
+    }
+
+    if (room.status !== 'lobby') throw new BadRequestException('A partida já começou.');
+    if ((room.members?.length || 0) >= room.maxPlayers) {
+      throw new BadRequestException('Sala cheia.');
     }
 
     const memberId = uuidv4();
@@ -141,7 +164,7 @@ export class RoomsService {
     const member = this.memberRepo.create({
       id: memberId,
       roomId: room.id,
-      name: dto.name,
+      name: dto.name.trim(),
       avatar: dto.avatar,
       color: dto.color,
       isBot: false,
@@ -152,8 +175,32 @@ export class RoomsService {
 
     await this.memberRepo.save(member);
 
+    await this.touchRoomActivity(room.id);
+
     const lobby = await this.getLobbyState(room.id);
     return { session: this.toSession(room, member), lobby };
+  }
+
+  async touchRoomActivity(roomId: string): Promise<void> {
+    await this.roomRepo.update(roomId, { lastActivityAt: new Date() });
+  }
+
+  /** Remove salas sem atividade (jogadas ou alterações no lobby) por mais de maxIdleMs. */
+  async deleteInactiveRooms(maxIdleMs: number): Promise<string[]> {
+    const cutoff = new Date(Date.now() - maxIdleMs);
+    const stale = await this.roomRepo
+      .createQueryBuilder('room')
+      .where('datetime(COALESCE(room.lastActivityAt, room.updatedAt)) < datetime(:cutoff)', {
+        cutoff: cutoff.toISOString(),
+      })
+      .getMany();
+
+    const deletedIds: string[] = [];
+    for (const room of stale) {
+      await this.roomRepo.delete(room.id);
+      deletedIds.push(room.id);
+    }
+    return deletedIds;
   }
 
   async getLobbyState(roomId: string): Promise<LobbyStateDto> {
@@ -183,6 +230,7 @@ export class RoomsService {
       hostMemberId: room.hostMemberId,
       players,
       hasPassword: !!room.passwordHash,
+      allowBots: (room.settings as GameRoom['settings']).allowBots ?? false,
     };
   }
 
@@ -197,6 +245,114 @@ export class RoomsService {
     });
   }
 
+  /** Remove jogador do lobby ou encerra a sala se o host sair. */
+  async leaveLobbyMember(
+    memberId: string,
+  ): Promise<{ type: 'member_left'; roomId: string } | { type: 'room_deleted'; roomId: string } | null> {
+    const member = await this.memberRepo.findOne({ where: { id: memberId } });
+    if (!member) return null;
+
+    const room = await this.roomRepo.findOne({ where: { id: member.roomId } });
+    if (!room) {
+      await this.memberRepo.delete(memberId);
+      return null;
+    }
+
+    if (room.hostMemberId === memberId) {
+      const roomId = room.id;
+      await this.roomRepo.delete(roomId);
+      return { type: 'room_deleted', roomId };
+    }
+
+    if (room.status !== 'lobby') {
+      await this.bindSocket(memberId, null);
+      return { type: 'member_left', roomId: member.roomId };
+    }
+
+    await this.memberRepo.delete(memberId);
+    return { type: 'member_left', roomId: member.roomId };
+  }
+
+  private readonly BOT_NAMES = [
+    'AlphaBot',
+    'BetaMind',
+    'CardShark',
+    'PhaseMaster',
+    'SkipKing',
+    'WildCard',
+    'TrincaBot',
+    'SequenciaAI',
+  ];
+
+  private readonly BOT_AVATARS = ['🤖', '🦾', '🧠', '👾', '🎮', '⚡', '🃏', '🎯'];
+  private readonly BOT_COLORS = ['#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#6366f1', '#14b8a6'];
+
+  async addBotToRoom(roomId: string, hostMemberId: string): Promise<LobbyStateDto> {
+    const room = await this.roomRepo.findOne({
+      where: { id: roomId },
+      relations: { members: true },
+    });
+    if (!room) throw new NotFoundException('Sala não encontrada.');
+    if (room.hostMemberId !== hostMemberId) {
+      throw new ForbiddenException('Apenas o host pode adicionar bots.');
+    }
+    if (room.status !== 'lobby') throw new BadRequestException('A partida já começou.');
+    const settings = room.settings as GameRoom['settings'];
+    if (!settings.allowBots) throw new BadRequestException('Bots não estão habilitados nesta sala.');
+
+    const members = room.members || [];
+    if (members.length >= room.maxPlayers) {
+      throw new BadRequestException('Sala cheia.');
+    }
+
+    const usedNames = members.map((m) => m.name);
+    const name =
+      this.BOT_NAMES.find((n) => !usedNames.includes(n)) || `Bot AI ${uuidv4().slice(0, 4)}`;
+    const usedAvatars = members.map((m) => m.avatar);
+    const avatar =
+      this.BOT_AVATARS.find((a) => !usedAvatars.includes(a)) || '🤖';
+    const usedColors = members.map((m) => m.color);
+    const color =
+      this.BOT_COLORS.find((c) => !usedColors.includes(c)) || '#6b7280';
+
+    const bot = this.memberRepo.create({
+      id: uuidv4(),
+      roomId: room.id,
+      name,
+      avatar,
+      color,
+      isBot: true,
+      sessionToken: uuidv4(),
+      seatIndex: members.length,
+      isConnected: true,
+      socketId: null,
+    });
+
+    await this.memberRepo.save(bot);
+    await this.touchRoomActivity(roomId);
+    return this.getLobbyState(roomId);
+  }
+
+  async removeBotFromRoom(
+    roomId: string,
+    hostMemberId: string,
+    botMemberId: string,
+  ): Promise<LobbyStateDto> {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) throw new NotFoundException('Sala não encontrada.');
+    if (room.hostMemberId !== hostMemberId) {
+      throw new ForbiddenException('Apenas o host pode remover bots.');
+    }
+    if (room.status !== 'lobby') throw new BadRequestException('A partida já começou.');
+
+    const bot = await this.memberRepo.findOne({ where: { id: botMemberId, roomId } });
+    if (!bot || !bot.isBot) throw new BadRequestException('Bot não encontrado.');
+
+    await this.memberRepo.delete(botMemberId);
+    await this.touchRoomActivity(roomId);
+    return this.getLobbyState(roomId);
+  }
+
   async startGame(roomId: string, memberId: string): Promise<GameRoom> {
     const room = await this.roomRepo.findOne({
       where: { id: roomId },
@@ -206,8 +362,13 @@ export class RoomsService {
     if (room.hostMemberId !== memberId) throw new ForbiddenException('Apenas o host pode iniciar.');
     if (room.status !== 'lobby') throw new BadRequestException('A partida já foi iniciada.');
 
-    const members = (room.members || []).sort((a, b) => a.seatIndex - b.seatIndex);
-    if (members.length < 3) throw new BadRequestException('Mínimo de 3 jogadores.');
+    const members = (room.members || [])
+      .filter((m) => m.isBot || m.isConnected)
+      .sort((a, b) => a.seatIndex - b.seatIndex);
+
+    if (members.length < 3) {
+      throw new BadRequestException('Mínimo de 3 jogadores (humanos ou bots) para iniciar.');
+    }
 
     const players = this.gameService.membersToPlayers(members);
     let gameRoom = this.gameService.createInitialGameRoom(
@@ -223,6 +384,7 @@ export class RoomsService {
     room.status = 'playing';
     room.gameStateJson = this.gameService.serialize(gameRoom);
     room.roundNumber = gameRoom.roundNumber;
+    room.lastActivityAt = new Date();
     await this.roomRepo.save(room);
 
     return gameRoom;
@@ -240,6 +402,7 @@ export class RoomsService {
     room.gameStateJson = this.gameService.serialize(gameRoom);
     room.status = gameRoom.status as Room['status'];
     room.roundNumber = gameRoom.roundNumber;
+    room.lastActivityAt = new Date();
     await this.roomRepo.save(room);
   }
 

@@ -53,6 +53,9 @@ export class Room {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  @Column({ type: 'datetime', nullable: true })
+  lastActivityAt!: Date | null;
 }
 
 @Entity('room_members')

@@ -35,4 +35,5 @@ export class LobbyStateDto {
   hostMemberId!: string;
   players!: LobbyPlayerDto[];
   hasPassword!: boolean;
+  allowBots!: boolean;
 }

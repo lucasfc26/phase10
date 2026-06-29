@@ -80,6 +80,7 @@ export interface GameRoom {
   laidDownPhases: LaidDownPhase[]; // All phases laid down on table in this round
   roundNumber: number;
   winnerId: string | null;
+  hasDrawnThisTurn: boolean;
   settings: {
     gameMode: 'bots' | 'pass_and_play' | 'online'; // Added 'online'
     botDelay: number; // milliseconds

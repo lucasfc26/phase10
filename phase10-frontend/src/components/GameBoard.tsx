@@ -16,7 +16,7 @@ import {
 import { RulesModal } from './RulesModal';
 import { PassAndPlayTransition } from './PassAndPlayTransition';
 import { RoomSession } from '../services/onlineApi';
-import { connectOnlineSocket, emitGameAction } from '../services/onlineSocket';
+import { connectOnlineSocket, emitGameAction, getRoomDeletedMessage } from '../services/onlineSocket';
 
 interface GameBoardProps {
   initialRoom: GameRoom;
@@ -52,8 +52,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const [buildGroup1, setBuildGroup1] = useState<Card[]>([]);
   const [buildGroup2, setBuildGroup2] = useState<Card[]>([]);
 
-  // Selected card in hand (for actions like discard, hit, or moving to builder)
-  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  // Selected cards in hand (multi-select in phase builder, single for discard/hit)
+  const [selectedCards, setSelectedCards] = useState<Card[]>([]);
+  const primarySelectedCard = selectedCards.length === 1 ? selectedCards[0] : null;
+  const selectedHitCard = selectedCards.length > 0 ? selectedCards[0] : null;
+
+  const clearCardSelection = () => setSelectedCards([]);
 
   // Skip selector target modal
   const [skipCardPending, setSkipCardPending] = useState<Card | null>(null);
@@ -164,6 +168,37 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     }]);
   };
 
+  const applyOnlineGameState = (state: GameRoom) => {
+    setRoom(state);
+    roundEndHandledRef.current = state.status === 'round_end';
+    if (state.status === 'round_end') {
+      const allLaid =
+        state.players.length > 0 &&
+        state.players.every((p) => state.laidDownPhases.some((l) => l.playerId === p.id));
+      setRoundEndReason(allLaid ? 'all_laid_down' : 'go_out');
+    }
+    if (state.status === 'playing') {
+      setAutoStartCountdown(null);
+      roundEndHandledRef.current = false;
+      const active = state.players[state.currentTurnIndex];
+      const myTurn = active?.id === onlineSession?.memberId && !active?.isSkipped;
+      if (myTurn) {
+        setTurnState(state.hasDrawnThisTurn ? 'playing' : 'drawing');
+      } else {
+        setTurnState('idle');
+      }
+    }
+  };
+
+  const handleOnlineActionResult = (result: { ok?: boolean; error?: string; room?: GameRoom }) => {
+    if (result?.error) {
+      alert(result.error);
+      return false;
+    }
+    if (result?.room) applyOnlineGameState(result.room);
+    return true;
+  };
+
   // ----------------------------------------------------
   // GAME STARTER (SETUP PILES, DEAL CARDS)
   // ----------------------------------------------------
@@ -240,19 +275,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   useEffect(() => {
     if (isOnline && onlineSession) {
       connectOnlineSocket(onlineSession.sessionToken, {
-        onGameState: (state) => {
-          setRoom(state);
-          roundEndHandledRef.current = state.status === 'round_end';
-          const active = state.players[state.currentTurnIndex];
-          const myTurn =
-            state.status === 'playing' &&
-            active?.id === onlineSession.memberId &&
-            !active?.isSkipped;
-          if (myTurn) setTurnState('drawing');
-          else if (state.status === 'playing') setTurnState('idle');
-        },
+        onGameState: (state) => applyOnlineGameState(state),
         onGameLog: (log) => {
           setLogs((prev) => [...prev, log]);
+        },
+        onRoomDeleted: (payload) => {
+          alert(getRoomDeletedMessage(payload.reason));
+          onExit();
         },
       });
       return;
@@ -275,6 +304,27 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const isMyTurn = isOnline
     ? room.players[room.currentTurnIndex]?.id === onlineSession?.memberId && !showTransition
     : activePlayer && !activePlayer.isBot && !showTransition;
+
+  // Sincroniza turno no modo online quando o servidor atualiza currentTurnIndex
+  useEffect(() => {
+    if (!isOnline || !onlineSession || room.status !== 'playing') return;
+
+    const active = room.players[room.currentTurnIndex];
+    if (!active) return;
+
+    if (active.id === onlineSession.memberId && !active.isSkipped) {
+      setTurnState((prev) => {
+        if (room.hasDrawnThisTurn) return 'playing';
+        return prev === 'playing' ? 'playing' : 'drawing';
+      });
+    } else {
+      setIsBuildingPhase(false);
+      setBuildGroup1([]);
+      setBuildGroup2([]);
+      setSelectedCards([]);
+      setTurnState('idle');
+    }
+  }, [isOnline, onlineSession?.memberId, room.currentTurnIndex, room.status, room.players, room.hasDrawnThisTurn]);
 
   // Is Phase builder complete/valid?
   const checkBuilderValidity = (): { isValid: boolean; error?: string } => {
@@ -338,8 +388,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     if (!isMyTurn || turnState !== 'drawing' || activePlayer?.isSkipped) return;
 
     if (isOnline) {
-      emitGameAction({ type: 'draw', source });
-      setTurnState('playing');
+      emitGameAction({ type: 'draw', source }, (result) => {
+        if (result?.error) {
+          alert(result.error);
+          return;
+        }
+        setTurnState('playing');
+      });
       return;
     }
 
@@ -387,7 +442,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     });
 
     setTurnState('playing');
-    setSelectedCard(null);
+    setSelectedCards([]);
   };
 
   // Discard card to end turn
@@ -411,14 +466,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         type: 'discard',
         cardId: card.id,
         skipPlayerId: skipPlayerId || undefined,
+      }, (result) => {
+        if (result?.error) {
+          alert(result.error);
+          return;
+        }
+        setIsBuildingPhase(false);
+        setBuildGroup1([]);
+        setBuildGroup2([]);
+        setSelectedCards([]);
+        setSkipCardPending(null);
+        setShowSkipSelector(false);
+        setTurnState('idle');
       });
-      setIsBuildingPhase(false);
-      setBuildGroup1([]);
-      setBuildGroup2([]);
-      setSelectedCard(null);
-      setSkipCardPending(null);
-      setShowSkipSelector(false);
-      setTurnState('idle');
       return;
     }
 
@@ -428,7 +488,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     setIsBuildingPhase(false);
     setBuildGroup1([]);
     setBuildGroup2([]);
-    setSelectedCard(null);
+    setSelectedCards([]);
 
     let roundEndResult: ReturnType<typeof evaluateRoundEnd> = null;
 
@@ -544,29 +604,58 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // ----------------------------------------------------
   const handleToggleBuilder = () => {
     playSound('click');
-    setIsBuildingPhase(prev => {
+    setIsBuildingPhase((prev) => {
       if (prev) {
-        // Recycle cards back to hand (though they never left hand, builder just tracks selections)
         setBuildGroup1([]);
         setBuildGroup2([]);
+        clearCardSelection();
       }
       return !prev;
     });
   };
 
-  const addCardToBuildGroup = (card: Card, groupNum: 1 | 2) => {
+  const addCardsToBuildGroup = (cards: Card[], groupNum: 1 | 2) => {
+    if (cards.length === 0) return;
     playSound('click');
+    const incomingIds = new Set(cards.map((c) => c.id));
+
     if (groupNum === 1) {
-      if (buildGroup1.some(c => c.id === card.id)) return;
-      // Remove from other group if it's there
-      setBuildGroup2(prev => prev.filter(c => c.id !== card.id));
-      setBuildGroup1(prev => [...prev, card]);
+      setBuildGroup2((prev) => prev.filter((c) => !incomingIds.has(c.id)));
+      setBuildGroup1((prev) => {
+        const existing = new Set(prev.map((c) => c.id));
+        return [...prev, ...cards.filter((c) => !existing.has(c.id))];
+      });
     } else {
-      if (buildGroup2.some(c => c.id === card.id)) return;
-      setBuildGroup1(prev => prev.filter(c => c.id !== card.id));
-      setBuildGroup2(prev => [...prev, card]);
+      setBuildGroup1((prev) => prev.filter((c) => !incomingIds.has(c.id)));
+      setBuildGroup2((prev) => {
+        const existing = new Set(prev.map((c) => c.id));
+        return [...prev, ...cards.filter((c) => !existing.has(c.id))];
+      });
     }
-    setSelectedCard(null);
+    clearCardSelection();
+  };
+
+  const addCardToBuildGroup = (card: Card, groupNum: 1 | 2) => {
+    addCardsToBuildGroup([card], groupNum);
+  };
+
+  const handleHandCardClick = (card: Card) => {
+    if (!isMyTurn) return;
+    playSound('click');
+
+    if (isBuildingPhase) {
+      setSelectedCards((prev) => {
+        const exists = prev.some((c) => c.id === card.id);
+        if (exists) return prev.filter((c) => c.id !== card.id);
+        return [...prev, card];
+      });
+      return;
+    }
+
+    setSelectedCards((prev) => {
+      const exists = prev.some((c) => c.id === card.id);
+      return exists ? [] : [card];
+    });
   };
 
   const removeCardFromBuildGroup = (cardId: string, groupNum: 1 | 2) => {
@@ -586,49 +675,56 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       return;
     }
 
-    playSound('laydown');
+    const layDownPlayer = isOnline ? myPlayer : activePlayer;
+    const group1Ids = buildGroup1.map((c) => c.id);
+    const group2Ids = buildGroup2.map((c) => c.id);
 
     if (isOnline) {
-      emitGameAction({
-        type: 'lay_down',
-        group1CardIds: buildGroup1.map((c) => c.id),
-        group2CardIds: buildGroup2.map((c) => c.id),
-      });
-      setIsBuildingPhase(false);
-      setBuildGroup1([]);
-      setBuildGroup2([]);
-      setSelectedCard(null);
+      emitGameAction(
+        {
+          type: 'lay_down',
+          group1CardIds: group1Ids,
+          group2CardIds: group2Ids,
+        },
+        (result) => {
+          if (!handleOnlineActionResult(result)) return;
+          playSound('laydown');
+          setIsBuildingPhase(false);
+          setBuildGroup1([]);
+          setBuildGroup2([]);
+          clearCardSelection();
+        },
+      );
       return;
     }
 
-    const groups = [buildGroup1, buildGroup2].filter(g => g.length > 0);
+    playSound('laydown');
+
+    const groups = [buildGroup1, buildGroup2].filter((g) => g.length > 0);
 
     let playersAfterLayDown: Player[] = [];
     let laidDownAfterLayDown: LaidDownPhase[] = [];
 
-    setRoom(prev => {
-      // 1. Mark player as laid down
+    setRoom((prev) => {
+      const playerIdx = prev.players.findIndex((p) => p.id === layDownPlayer.id);
+      if (playerIdx < 0) return prev;
+
+      const allUsedIds = [...group1Ids, ...group2Ids];
       const updatedPlayers = prev.players.map((p, idx) => {
-        if (idx === prev.currentTurnIndex) {
-          // Remove used cards from hand
-          const allUsedIds = [...buildGroup1, ...buildGroup2].map(c => c.id);
-          const remainingHand = p.cards.filter(c => !allUsedIds.includes(c.id));
-          return {
-            ...p,
-            cards: remainingHand,
-            hasLaidDownThisRound: true
-          };
-        }
-        return p;
+        if (idx !== playerIdx) return p;
+        return {
+          ...p,
+          cards: p.cards.filter((c) => !allUsedIds.includes(c.id)),
+          hasLaidDownThisRound: true,
+        };
       });
 
-      // 2. Add to table laidDownPhases list
       const newLaidDown: LaidDownPhase = {
-        playerId: activePlayer.id,
-        playerName: activePlayer.name,
-        playerColor: activePlayer.color || '#a855f7',
-        phaseId: activePlayer.phase,
-        groups
+        playerId: layDownPlayer.id,
+        playerName: layDownPlayer.name,
+        playerColor: layDownPlayer.color || '#a855f7',
+        phaseId: layDownPlayer.phase,
+        groups,
       };
 
       const newLaidDownPhases = [...prev.laidDownPhases, newLaidDown];
@@ -638,30 +734,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       return {
         ...prev,
         players: updatedPlayers,
-        laidDownPhases: newLaidDownPhases
+        laidDownPhases: newLaidDownPhases,
       };
     });
 
-    addLog(`✨ ${activePlayer.avatar} ${activePlayer.name} BAIXOU A FASE ${activePlayer.phase}! ✨`, 'success');
+    addLog(`✨ ${layDownPlayer.avatar} ${layDownPlayer.name} BAIXOU A FASE ${layDownPlayer.phase}! ✨`, 'success');
 
     const endResult = evaluateRoundEnd(playersAfterLayDown, laidDownAfterLayDown, {
       drawPile: room.drawPile,
-      discardPile: room.discardPile
+      discardPile: room.discardPile,
     });
     if (endResult) {
       handleRoundEnd(endResult.winner, endResult.allAdvance);
       return;
     }
 
-    // Reset Builder
     setIsBuildingPhase(false);
     setBuildGroup1([]);
     setBuildGroup2([]);
-    setSelectedCard(null);
+    clearCardSelection();
 
-    // Bot banter
     if (room.settings.gameMode === 'bots') {
-      triggerBotChatReaction("baixou");
+      triggerBotChatReaction('baixou');
     }
   };
 
@@ -669,8 +763,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // HIT ACTIONS
   // ----------------------------------------------------
   const handleHitCard = (targetPlayerId: string, groupIndex: number) => {
-    if (!isMyTurn || turnState !== 'playing' || !selectedCard) return;
-    if (!activePlayer.hasLaidDownThisRound) {
+    if (!isMyTurn || turnState !== 'playing' || !selectedHitCard) return;
+    if (!myPlayer.hasLaidDownThisRound) {
       alert("Você precisa baixar a sua própria fase antes de poder bater nas fases dos adversários!");
       return;
     }
@@ -680,6 +774,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     if (!layout) return;
 
     const group = layout.groups[groupIndex];
+    if (!group) {
+      alert('Grupo alvo não encontrado.');
+      return;
+    }
+
     const phaseDef = STANDARD_PHASES.find(p => p.id === layout.phaseId);
     if (!phaseDef) return;
 
@@ -687,24 +786,30 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     const category = categories[groupIndex] || 'Grupo';
 
     // Validate if hit is allowed
-    if (!isValidHit(selectedCard, group, category)) {
+    if (!isValidHit(selectedHitCard, group, category)) {
       alert(`Esta carta não se encaixa neste grupo (${category}).`);
       return;
     }
 
-    // Apply hit!
-    playSound('draw');
-
     if (isOnline) {
-      emitGameAction({
-        type: 'hit',
-        cardId: selectedCard.id,
-        targetPlayerId,
-        groupIndex,
-      });
-      setSelectedCard(null);
+      emitGameAction(
+        {
+          type: 'hit',
+          cardId: selectedHitCard.id,
+          targetPlayerId,
+          groupIndex,
+        },
+        (result) => {
+          if (!handleOnlineActionResult(result)) return;
+          playSound('draw');
+          clearCardSelection();
+        },
+      );
       return;
     }
+
+    // Apply hit! (local)
+    playSound('draw');
 
     let playersAfterHit: Player[] = [];
     let laidDownAfterHit: LaidDownPhase[] = [];
@@ -713,7 +818,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       // 1. Remove card from player hand
       const updatedPlayers = prev.players.map((p, idx) => {
         if (idx === prev.currentTurnIndex) {
-          const remHand = p.cards.filter(c => c.id !== selectedCard.id);
+          const remHand = p.cards.filter(c => c.id !== selectedHitCard.id);
           return { ...p, cards: remHand };
         }
         return p;
@@ -724,7 +829,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         if (layoutItem.playerId === targetPlayerId) {
           const updatedGroups = layoutItem.groups.map((grp, gIdx) => {
             if (gIdx === groupIndex) {
-              return [...grp, selectedCard];
+              return [...grp, selectedHitCard];
             }
             return grp;
           });
@@ -743,9 +848,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       };
     });
 
-    const cardDesc = selectedCard.type === 'wild' ? 'Curinga' : `${selectedCard.value} (${selectedCard.color})`;
+    const cardDesc = selectedHitCard.type === 'wild' ? 'Curinga' : `${selectedHitCard.value} (${selectedHitCard.color})`;
     addLog(`${activePlayer.avatar} ${activePlayer.name} bateu com ${cardDesc} na fase de ${layout.playerName}!`, 'success');
-    setSelectedCard(null);
+    setSelectedCards([]);
 
     const endResult = evaluateRoundEnd(playersAfterHit, laidDownAfterHit, {
       drawPile: room.drawPile,
@@ -760,6 +865,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // ROUND END & SCORING CALCULATIONS
   // ----------------------------------------------------
   const handleRoundEnd = (roundWinner: Player | null, allAdvance: boolean) => {
+    if (isOnline) return;
     if (roundEndHandledRef.current) return;
     roundEndHandledRef.current = true;
 
@@ -861,9 +967,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
     const timer = setTimeout(() => {
       if (isOnline) {
-        emitGameAction({ type: 'next_round' });
-        roundEndHandledRef.current = false;
-        setAutoStartCountdown(null);
+        if (!onlineSession?.isHost) return;
+        emitGameAction({ type: 'next_round' }, (result) => {
+          if (result?.error) return;
+          if (result?.room) applyOnlineGameState(result.room);
+          roundEndHandledRef.current = false;
+          setAutoStartCountdown(null);
+        });
       } else {
         handleNextRound();
       }
@@ -873,15 +983,27 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       clearInterval(interval);
       clearTimeout(timer);
     };
-  }, [room.status, room.roundNumber, isOnline]);
+  }, [room.status, room.roundNumber, isOnline, onlineSession?.isHost]);
 
   // Continue to Next Round Trigger
   const handleNextRound = () => {
     playSound('click');
     if (isOnline) {
-      emitGameAction({ type: 'next_round' });
-      roundEndHandledRef.current = false;
-      setAutoStartCountdown(null);
+      if (!onlineSession?.isHost) {
+        alert('Apenas o host pode iniciar a próxima rodada.');
+        return;
+      }
+      emitGameAction({ type: 'next_round' }, (result) => {
+        if (result?.error) {
+          alert(result.error);
+          return;
+        }
+        if (result?.room) {
+          applyOnlineGameState(result.room);
+        }
+        roundEndHandledRef.current = false;
+        setAutoStartCountdown(null);
+      });
       return;
     }
 
@@ -1365,7 +1487,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                   {turnState === 'idle' && `Aguardando a jogada de ${activePlayer.name}...`}
                 </p>
 
-                {isMyTurn && turnState === 'playing' && !activePlayer.hasLaidDownThisRound && (
+                {isMyTurn && turnState === 'playing' && !myPlayer.hasLaidDownThisRound && (
                   <button
                     onClick={handleToggleBuilder}
                     className={`w-full py-2 rounded-xl text-xs font-black tracking-wide border transition-all ${
@@ -1447,7 +1569,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                               })}
 
                               {/* Hit button overlay if a card is selected */}
-                              {isMyTurn && turnState === 'playing' && selectedCard && activePlayer.hasLaidDownThisRound && (
+                              {isMyTurn && turnState === 'playing' && selectedHitCard && myPlayer.hasLaidDownThisRound && !isBuildingPhase && (
                                 <button
                                   onClick={() => handleHitCard(layout.playerId, grpIdx)}
                                   className="w-10 h-12 bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 text-white rounded-md shrink-0 flex flex-col items-center justify-center font-bold text-[9px] cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
@@ -1666,6 +1788,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
               <p className="text-xs text-slate-400">
                 {STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.description}
               </p>
+              <p className="text-[11px] text-indigo-400/80 mt-1">
+                Dica: clique em várias cartas da mão para selecioná-las e mova todas de uma vez para o grupo.
+              </p>
             </div>
 
             {/* Two Building groups */}
@@ -1835,7 +1960,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             {/* Cards Horizontal Container */}
             <div className="flex gap-2 py-2 overflow-x-auto min-h-48 px-1 scrollbar-thin">
               {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).map((card) => {
-                const isSelected = selectedCard?.id === card.id;
+                const isSelected = selectedCards.some((c) => c.id === card.id);
                 const isInGroup1 = buildGroup1.some(c => c.id === card.id);
                 const isInGroup2 = buildGroup2.some(c => c.id === card.id);
                 const isW = card.type === 'wild';
@@ -1845,7 +1970,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                   <button
                     key={card.id}
                     disabled={!isMyTurn}
-                    onClick={() => { if (!isMyTurn) return; playSound('click'); setSelectedCard(isSelected ? null : card); }}
+                    onClick={() => handleHandCardClick(card)}
                     className={`w-24 h-36 rounded-xl border-4 transition-all relative flex flex-col justify-between p-3 shrink-0 overflow-hidden text-left ${
                       isSelected
                         ? 'border-indigo-500 scale-105 shadow-lg shadow-indigo-950/50 -translate-y-2'
@@ -1897,53 +2022,79 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             </div>
 
             {/* Selected Card Action Drawer */}
-            {selectedCard && (
+            {selectedCards.length > 0 && (
               <div className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in">
                 <div className="flex items-center space-x-3 text-xs">
-                  <div className="w-8 h-12 rounded border border-slate-800 bg-slate-900 flex items-center justify-center font-bold">
-                    <span style={{ color: selectedCard.type === 'wild' ? '#10b981' : selectedCard.type === 'skip' ? '#f43f5e' : selectedCard.color }}>
-                      {selectedCard.type === 'wild' ? 'W' : selectedCard.type === 'skip' ? 'S' : selectedCard.value}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">Carta Selecionada</span>
-                    <span className="text-sm font-black text-slate-200">
-                      {selectedCard.type === 'wild' ? 'Curinga (Wild Card)' : selectedCard.type === 'skip' ? 'Skip (Pular Oponente)' : `${selectedCard.value} de cor ${selectedCard.color.toUpperCase()}`}
-                    </span>
-                  </div>
+                  {isBuildingPhase && selectedCards.length > 1 ? (
+                    <div>
+                      <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">
+                        Cartas Selecionadas
+                      </span>
+                      <span className="text-sm font-black text-indigo-300">
+                        {selectedCards.length} cartas prontas para mover ao grupo
+                      </span>
+                    </div>
+                  ) : primarySelectedCard ? (
+                    <>
+                      <div className="w-8 h-12 rounded border border-slate-800 bg-slate-900 flex items-center justify-center font-bold">
+                        <span style={{ color: primarySelectedCard.type === 'wild' ? '#10b981' : primarySelectedCard.type === 'skip' ? '#f43f5e' : primarySelectedCard.color }}>
+                          {primarySelectedCard.type === 'wild' ? 'W' : primarySelectedCard.type === 'skip' ? 'S' : primarySelectedCard.value}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">Carta Selecionada</span>
+                        <span className="text-sm font-black text-slate-200">
+                          {primarySelectedCard.type === 'wild' ? 'Curinga (Wild Card)' : primarySelectedCard.type === 'skip' ? 'Skip (Pular Oponente)' : `${primarySelectedCard.value} de cor ${primarySelectedCard.color.toUpperCase()}`}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">
+                        Cartas Selecionadas
+                      </span>
+                      <span className="text-sm font-black text-indigo-300">
+                        {selectedCards.length} cartas — selecione uma para descartar ou bater
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                  {/* If builder is active, offer placement options */}
                   {isBuildingPhase && (
                     <>
                       <button
-                        onClick={() => addCardToBuildGroup(selectedCard, 1)}
-                        className="flex-1 sm:flex-initial px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg cursor-pointer"
+                        onClick={() => addCardsToBuildGroup(selectedCards, 1)}
+                        disabled={selectedCards.length === 0}
+                        className="flex-1 sm:flex-initial px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg cursor-pointer"
                       >
-                        Mover para Grupo 1
+                        {selectedCards.length > 1
+                          ? `Mover ${selectedCards.length} para Grupo 1`
+                          : 'Mover para Grupo 1'}
                       </button>
 
                       {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
-                        STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.type || ''
+                        STANDARD_PHASES.find(p => p.id === myPlayer.phase)?.type || ''
                       ) && (
                         <button
-                          onClick={() => addCardToBuildGroup(selectedCard, 2)}
-                          className="flex-1 sm:flex-initial px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-lg cursor-pointer"
+                          onClick={() => addCardsToBuildGroup(selectedCards, 2)}
+                          disabled={selectedCards.length === 0}
+                          className="flex-1 sm:flex-initial px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg cursor-pointer"
                         >
-                          Mover para Grupo 2
+                          {selectedCards.length > 1
+                            ? `Mover ${selectedCards.length} para Grupo 2`
+                            : 'Mover para Grupo 2'}
                         </button>
                       )}
                     </>
                   )}
 
-                  {/* Discard Action */}
-                  {turnState === 'playing' && (
+                  {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
                     <button
-                      onClick={() => handleDiscard(selectedCard)}
+                      onClick={() => handleDiscard(primarySelectedCard)}
                       className="flex-1 sm:flex-initial px-6 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg cursor-pointer transition-transform hover:scale-105 active:scale-95"
                     >
-                      {selectedCard.type === 'skip' ? '🚫 Usar para Pular Oponente' : '🗑 Descartar'}
+                      {primarySelectedCard.type === 'skip' ? '🚫 Usar para Pular Oponente' : '🗑 Descartar'}
                     </button>
                   )}
                 </div>
@@ -2022,7 +2173,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
               </p>
               {autoStartCountdown !== null && autoStartCountdown > 0 && (
                 <p className="text-[11px] text-indigo-400 font-semibold">
-                  Nova rodada em {autoStartCountdown}s…
+                  {isOnline && !onlineSession?.isHost
+                    ? `O host iniciará a nova rodada em ${autoStartCountdown}s…`
+                    : `Nova rodada em ${autoStartCountdown}s…`}
                 </p>
               )}
             </div>
@@ -2075,19 +2228,32 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
             {/* Call to action */}
             <div className="flex gap-3 justify-end">
-              <button
-                onClick={handleResetGame}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Reiniciar Todo Jogo
-              </button>
+              {!isOnline && (
+                <button
+                  onClick={handleResetGame}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                >
+                  Reiniciar Todo Jogo
+                </button>
+              )}
 
               <button
                 onClick={handleNextRound}
-                className="px-8 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-black text-sm tracking-wide shadow-lg shadow-indigo-900/40 flex items-center space-x-2 transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer animate-bounce"
+                disabled={isOnline && !onlineSession?.isHost}
+                className={`px-8 py-3 rounded-xl font-black text-sm tracking-wide shadow-lg flex items-center space-x-2 transition-transform ${
+                  isOnline && !onlineSession?.isHost
+                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-indigo-900/40 hover:scale-[1.02] active:scale-[0.98] cursor-pointer animate-bounce'
+                }`}
               >
-                <span>INICIAR RODADA {room.roundNumber + 1}</span>
-                <ArrowRight className="w-4 h-4 text-white" />
+                <span>
+                  {isOnline && !onlineSession?.isHost
+                    ? 'AGUARDANDO HOST'
+                    : `INICIAR RODADA ${room.roundNumber + 1}`}
+                </span>
+                {(!isOnline || onlineSession?.isHost) && (
+                  <ArrowRight className="w-4 h-4 text-white" />
+                )}
               </button>
             </div>
 
