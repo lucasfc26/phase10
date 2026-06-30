@@ -13,18 +13,26 @@ import {
   useCompactHandLayout,
   type HandSortMode,
 } from '../lib/handFan';
-import { cardPipClass } from '../lib/cards';
+import { cardPipClass, isTowerPowerCard, towerPowerCategoryLabel } from '../lib/cards';
+import {
+  getCardDisplayInfo,
+  getLegendaryDisplayInfo,
+  pickRandomLegendaryId,
+  towerChallengeLabel,
+} from '../games/towerMaster/cardInfo';
 import { 
   Card, Player, GameRoom, LaidDownPhase, GameLog, ChatMessage, STANDARD_PHASES 
 } from '../types';
 import { 
-  generateDeck, shuffleDeck, calculateHandScore, validatePhase, 
+  generateDeck, generateTowerMasterDeck, shuffleDeck, calculateHandScore, validatePhase, 
   identifyGroupTypes, isValidHit, botShouldDrawFromDiscard, 
   botTryToFormPhase, botChooseDiscard, botFindHits, getRandomBotPhrase, generateId,
-  evaluateRoundEnd, advanceToNextPlayer
+  evaluateRoundEnd, advanceToNextPlayer, ensureActivePlayerNotSkipped
 } from '../gameEngine';
 import { RulesModal } from './RulesModal';
 import { PassAndPlayTransition } from './PassAndPlayTransition';
+import { ToastStack, type ToastItem, type ToastType } from './ToastStack';
+import { TowerPromptModal, type TowerPromptState } from './TowerPromptModal';
 import { RoomSession } from '../services/onlineApi';
 import { connectOnlineSocket, emitGameAction, getRoomDeletedMessage } from '../services/onlineSocket';
 
@@ -36,6 +44,49 @@ interface GameBoardProps {
   initialSoundEnabled?: boolean;
 }
 
+function TowerInspectedCardPreview({ card }: { card: Card }) {
+  const isPower = isTowerPowerCard(card);
+  const powerCategory = card.powerCategory ?? 'attack';
+  const isW = card.type === 'wild';
+  const isS = card.type === 'skip';
+  const pipClass = cardPipClass(card.color);
+
+  if (isPower) {
+    return (
+      <div className={`playing-card playing-card--tower playing-card--tower-${powerCategory} tower-inspected-card`}>
+        <div className="playing-card__power-art">
+          <img src={card.imageSrc} alt="" draggable={false} />
+        </div>
+        <div className="playing-card__power-name">{card.powerName}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`playing-card tower-inspected-card text-left ${isW ? 'playing-card--wild' : isS ? 'playing-card--skip' : ''}`}>
+      <div className="h-full flex flex-col justify-between">
+        <div className={`playing-card__pip ${pipClass}`}>
+          {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
+        </div>
+        <div className="playing-card__center text-center flex items-center justify-center">
+          {isW ? (
+            <Wand2 className="playing-card__icon-lg" />
+          ) : isS ? (
+            <Ban className="playing-card__icon-lg" />
+          ) : (
+            <span className={`playing-card__value ${pipClass}`}>{card.value}</span>
+          )}
+        </div>
+        <div className="flex justify-end">
+          <span className={`playing-card__pip rotate-180 flex justify-end ${pipClass}`}>
+            {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const GameBoard: React.FC<GameBoardProps> = ({
   initialRoom,
   playerProfile,
@@ -45,6 +96,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 }) => {
   const [room, setRoom] = useState<GameRoom>(initialRoom);
   const isOnline = !!onlineSession;
+  const isTowerMaster = initialRoom.settings.cardGame === 'tower_master';
+  const gameTitle = isTowerMaster ? 'Mestre da Torre' : 'Phase 10';
+  const floorLabel = (n: number) => (isTowerMaster ? towerChallengeLabel(n) : `Fase ${n}`);
+  const floorWord = isTowerMaster ? 'Desafio' : 'Fase';
+  const floorWordLower = isTowerMaster ? 'desafio' : 'fase';
   const [logs, setLogs] = useState<GameLog[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState<string>('');
@@ -71,13 +127,69 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   // Selected cards in hand (multi-select in phase builder, single for discard/hit)
   const [selectedCards, setSelectedCards] = useState<Card[]>([]);
+  const [towerInspectedCardId, setTowerInspectedCardId] = useState<string | null>(null);
   const primarySelectedCard = selectedCards.length === 1 ? selectedCards[0] : null;
   const selectedHitCard = selectedCards.length > 0 ? selectedCards[0] : null;
 
   const clearCardSelection = () => setSelectedCards([]);
 
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  };
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    const id = generateId();
+    setToasts((prev) => [...prev, { id, message, type }]);
+  };
+
+  const resolveTowerPrompt = (value: unknown) => {
+    towerPromptResolverRef.current?.(value);
+    towerPromptResolverRef.current = null;
+    setTowerPrompt(null);
+  };
+
+  const cancelTowerPrompt = () => resolveTowerPrompt(null);
+
+  const openTowerPrompt = <T,>(state: TowerPromptState): Promise<T | null> =>
+    new Promise((resolve) => {
+      towerPromptResolverRef.current = resolve as (value: unknown) => void;
+      setTowerPrompt(state);
+    });
+
+  const resolveHandPick = (card: Card | null) => {
+    towerHandPickResolverRef.current?.(card);
+    towerHandPickResolverRef.current = null;
+    setTowerHandPick(null);
+  };
+
+  const pickHandCard = (title: string, cards: Card[], subtitle?: string): Promise<Card | null> => {
+    if (cards.length === 0) {
+      showToast('Nenhuma carta disponível para seleção.', 'warning');
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      towerHandPickResolverRef.current = resolve;
+      setTowerHandPick({
+        title,
+        subtitle,
+        eligibleIds: new Set(cards.map((handCard) => handCard.id)),
+      });
+    });
+  };
+
   const [handSortMode, setHandSortMode] = useState<HandSortMode | null>(null);
   const compactHand = useCompactHandLayout();
+  const [towerPowersDisabledRound, setTowerPowersDisabledRound] = useState<number | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [towerPrompt, setTowerPrompt] = useState<TowerPromptState | null>(null);
+  const [towerHandPick, setTowerHandPick] = useState<{
+    title: string;
+    subtitle?: string;
+    eligibleIds: Set<string>;
+  } | null>(null);
+  const towerPromptResolverRef = useRef<((value: unknown) => void) | null>(null);
+  const towerHandPickResolverRef = useRef<((card: Card | null) => void) | null>(null);
+  const towerInfoToastsRef = useRef<string[]>([]);
 
   // Skip selector target modal
   const [skipCardPending, setSkipCardPending] = useState<Card | null>(null);
@@ -89,6 +201,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const roundEndHandledRef = useRef(false);
   const pendingActionRef = useRef(false);
   const lastStateVersionRef = useRef(initialRoom.stateVersion ?? 0);
+  const lastTowerEnergyTurnRef = useRef<string>('');
   const [isActionPending, setIsActionPending] = useState(false);
 
   // Sound generator
@@ -219,7 +332,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const handleOnlineActionResult = (result: { ok?: boolean; error?: string; room?: GameRoom }) => {
     if (result?.error) {
-      alert(result.error);
+      showToast(result.error, 'error');
       return false;
     }
     if (result?.room) applyOnlineGameState(result.room);
@@ -251,21 +364,34 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     addLog(`--- Rodada ${currentRoom.roundNumber} Iniciando ---`, 'phase');
     
     // Create new clean deck
-    const freshDeck = generateDeck();
+    const freshDeck = currentRoom.settings.cardGame === 'tower_master'
+      ? generateTowerMasterDeck()
+      : generateDeck();
     const shuffled = shuffleDeck(freshDeck);
     
-    // Deal 10 cards to each player
-    const updatedPlayers = currentRoom.players.map(player => {
+    // Deal starting hand (12 in Tower Master, 10 in Phase 10)
+    const handSize = currentRoom.settings.cardGame === 'tower_master' ? 12 : 10;
+    const updatedPlayers = currentRoom.players.map((player) => {
       const hand: Card[] = [];
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < handSize; i++) {
         const card = shuffled.pop();
         if (card) hand.push(card);
       }
+      const isTower = currentRoom.settings.cardGame === 'tower_master';
       return {
         ...player,
         cards: hand.sort((a, b) => a.value - b.value), // sort by value initially
         hasLaidDownThisRound: false,
-        isSkipped: false
+        isSkipped: false,
+        energy: isTower ? player.energy ?? 3 : player.energy,
+        towerShield: false,
+        towerArmorTurns: Math.max(0, (player.towerArmorTurns ?? 0) - 1),
+        towerCannotLayDown: false,
+        towerExtraTurn: false,
+        towerLegendaryId: isTower
+          ? player.towerLegendaryId ?? pickRandomLegendaryId()
+          : player.towerLegendaryId,
+        towerLegendaryUsedThisRound: false,
       };
     });
 
@@ -294,7 +420,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     // Announce current phases
     updatedPlayers.forEach(p => {
-      addLog(`${avatarDisplayText(p.avatar)} ${p.name} está buscando a Fase ${p.phase}.`, 'info');
+      addLog(`${avatarDisplayText(p.avatar)} ${p.name} está buscando o ${floorLabel(p.phase)}.`, 'info');
     });
 
     // Setup first turn
@@ -326,7 +452,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           setLogs((prev) => [...prev, log]);
         },
         onRoomDeleted: (payload) => {
-          alert(getRoomDeletedMessage(payload.reason));
+          showToast(getRoomDeletedMessage(payload.reason), 'warning');
           onExit();
         },
       });
@@ -335,7 +461,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     roundEndHandledRef.current = false;
     startNewRound(initialRoom);
-    addChatMessage('Sistema', 'system', '#78716c', 'Bem-vindo ao Phase 10. Boa partida!', true);
+    addChatMessage('Sistema', 'system', '#78716c', `Bem-vindo ao ${gameTitle}. Boa partida!`, true);
   }, []);
 
   // ----------------------------------------------------
@@ -346,10 +472,42 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     (isOnline
       ? room.players.find((p) => p.id === onlineSession?.memberId)
       : activePlayer) || activePlayer;
+
+  const legendaryInfo =
+    isTowerMaster && myPlayer?.towerLegendaryId
+      ? getLegendaryDisplayInfo(myPlayer.towerLegendaryId)
+      : null;
+
+  const inspectedCard =
+    isTowerMaster && towerInspectedCardId
+      ? myPlayer.cards.find((c) => c.id === towerInspectedCardId) ?? null
+      : selectedCards.length > 0
+        ? selectedCards[selectedCards.length - 1]
+        : null;
+  const inspectedCardInfo = inspectedCard ? getCardDisplayInfo(inspectedCard) : null;
   
   const isMyTurn = isOnline
     ? room.players[room.currentTurnIndex]?.id === onlineSession?.memberId && !showTransition
     : activePlayer && !activePlayer.isBot && !showTransition;
+
+  useEffect(() => {
+    if (!isTowerMaster || isOnline || room.status !== 'playing') return;
+    const currentPlayer = room.players[room.currentTurnIndex];
+    if (!currentPlayer) return;
+
+    const turnKey = `${room.roundNumber}-${room.currentTurnIndex}-${currentPlayer.id}`;
+    if (lastTowerEnergyTurnRef.current === turnKey) return;
+    lastTowerEnergyTurnRef.current = turnKey;
+
+    setRoom((prev) => ({
+      ...prev,
+      players: prev.players.map((player, index) => {
+        if (index !== prev.currentTurnIndex) return player;
+        const nextEnergy = Math.min(6, (player.energy ?? 3) + 1);
+        return { ...player, energy: nextEnergy };
+      }),
+    }));
+  }, [isTowerMaster, isOnline, room.status, room.roundNumber, room.currentTurnIndex]);
 
   // Sincroniza turno no modo online quando o servidor atualiza currentTurnIndex
   useEffect(() => {
@@ -389,6 +547,494 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const sortHand = (mode: HandSortMode) => {
     playSound('click');
     setHandSortMode(mode);
+  };
+
+  const describeCard = (card?: Card): string => {
+    if (!card) return 'Carta';
+    if (card.type === 'power') return card.powerName ?? 'Poder';
+    if (card.type === 'wild') return 'Curinga';
+    if (card.type === 'skip') return 'Skip';
+    return `${card.value} ${card.color}`;
+  };
+
+  const drawFromPile = (drawPile: Card[], discardPile: Card[]): Card | undefined => {
+    if (drawPile.length === 0) {
+      const topDiscard = discardPile.pop();
+      const recycled = shuffleDeck([...discardPile]);
+      discardPile.length = 0;
+      if (topDiscard) discardPile.push(topDiscard);
+      drawPile.push(...recycled);
+    }
+    return drawPile.pop();
+  };
+
+  const applyTowerPower = (
+    card: Card,
+    {
+      target,
+      chosenColor,
+      ownChosenCard,
+      discardRecoveryId,
+      segundaChanceDiscardIds,
+    }: {
+      target: Player | null;
+      chosenColor: Card['color'] | null;
+      ownChosenCard: Card | null;
+      discardRecoveryId: string | null;
+      segundaChanceDiscardIds: string[];
+    },
+  ) => {
+    playSound('laydown');
+    if (card.powerId === 'eclipse') {
+      setTowerPowersDisabledRound(room.roundNumber);
+    }
+
+    towerInfoToastsRef.current = [];
+    const handAfterPowerRef = { cards: [] as Card[] };
+    const cost = card.powerCost ?? 0;
+
+    setRoom((prev) => {
+      const drawPile = [...prev.drawPile];
+      const discardPile = [...prev.discardPile, card];
+      let laidDownPhases = prev.laidDownPhases.map((layout) => ({
+        ...layout,
+        groups: layout.groups.map((group) => [...group]),
+      }));
+      const players = prev.players.map((player) => ({
+        ...player,
+        cards: [...player.cards],
+        energy: player.energy ?? 3,
+      }));
+
+      const activeIndex = prev.currentTurnIndex;
+      const caster = players[activeIndex];
+      caster.cards = caster.cards.filter((handCard) => handCard.id !== card.id);
+      caster.energy = Math.max(0, (caster.energy ?? 3) - cost);
+
+      let effectiveTargetId = target?.id ?? null;
+      const targetIndex = effectiveTargetId ? players.findIndex((player) => player.id === effectiveTargetId) : -1;
+
+      const isAttack = card.powerCategory === 'attack' || card.powerId === 'roubo_supremo';
+      if (isAttack && targetIndex >= 0) {
+        const targetPlayer = players[targetIndex];
+        if (targetPlayer.towerArmorTurns && targetPlayer.towerArmorTurns > 0) {
+          addLog(`${targetPlayer.name} bloqueou ${card.powerName} com Armadura.`, 'warning');
+          effectiveTargetId = null;
+        } else if (targetPlayer.towerShield) {
+          targetPlayer.towerShield = false;
+          addLog(`${targetPlayer.name} bloqueou ${card.powerName} com Escudo.`, 'warning');
+          effectiveTargetId = null;
+        } else if (targetPlayer.towerReflectNext) {
+          targetPlayer.towerReflectNext = false;
+          effectiveTargetId = caster.id;
+          addLog(`${targetPlayer.name} refletiu ${card.powerName} de volta para ${caster.name}.`, 'warning');
+        }
+      }
+
+      const finalTargetIndex = effectiveTargetId ? players.findIndex((player) => player.id === effectiveTargetId) : -1;
+      const finalTarget = finalTargetIndex >= 0 ? players[finalTargetIndex] : null;
+
+      switch (card.powerId) {
+        case 'roubo':
+          if (finalTarget && finalTarget.cards.length > 0) {
+            const stolenIndex = Math.floor(Math.random() * finalTarget.cards.length);
+            const [stolen] = finalTarget.cards.splice(stolenIndex, 1);
+            caster.cards.push(stolen);
+            addLog(`${caster.name} roubou uma carta de ${finalTarget.name}.`, 'action');
+          }
+          break;
+
+        case 'quebra_sequencia':
+          if (finalTarget) {
+            const layoutIndex = laidDownPhases.findIndex((layout) => layout.playerId === finalTarget.id);
+            const layout = laidDownPhases[layoutIndex];
+            if (layout) {
+              const phaseDef = STANDARD_PHASES.find((phase) => phase.id === layout.phaseId);
+              const categories = phaseDef ? identifyGroupTypes(phaseDef.type, layout.groups) : [];
+              const groupIndex = Math.max(0, categories.findIndex((category) => category.toLowerCase().includes('sequência')));
+              const returned = layout.groups[groupIndex] ?? [];
+              finalTarget.cards.push(...returned);
+              const remainingGroups = layout.groups.filter((_, index) => index !== groupIndex);
+              laidDownPhases = remainingGroups.length === 0
+                ? laidDownPhases.filter((_, index) => index !== layoutIndex)
+                : laidDownPhases.map((item, index) => index === layoutIndex ? { ...item, groups: remainingGroups } : item);
+              addLog(`${finalTarget.name} devolveu uma sequência para a mão.`, 'warning');
+            }
+          }
+          break;
+
+        case 'destruicao':
+          if (finalTarget) {
+            const layout = laidDownPhases.find((item) => item.playerId === finalTarget.id);
+            const group = layout?.groups.find((cards) => cards.length > 0);
+            const destroyed = group?.pop();
+            if (destroyed) {
+              discardPile.push(destroyed);
+              addLog(`${caster.name} destruiu ${describeCard(destroyed)} da mesa de ${finalTarget.name}.`, 'warning');
+            }
+          }
+          break;
+
+        case 'inversao':
+          if (finalTarget) {
+            const casterHand = caster.cards;
+            caster.cards = finalTarget.cards;
+            finalTarget.cards = casterHand;
+            addLog(`${caster.name} trocou a mão inteira com ${finalTarget.name}.`, 'warning');
+          }
+          break;
+
+        case 'congelar':
+          if (finalTarget) {
+            finalTarget.isSkipped = true;
+            addLog(`${finalTarget.name} foi congelado e perderá o próximo turno.`, 'warning');
+          }
+          break;
+
+        case 'maldicao':
+          if (finalTarget) {
+            for (let i = 0; i < 2; i++) {
+              const drawn = drawFromPile(drawPile, discardPile);
+              if (drawn) finalTarget.cards.push(drawn);
+            }
+            addLog(`${finalTarget.name} sofreu Maldição e comprou 2 cartas.`, 'warning');
+          }
+          break;
+
+        case 'bloqueio':
+          if (finalTarget) {
+            finalTarget.towerCannotLayDown = true;
+            addLog(`${finalTarget.name} não poderá baixar ${floorWordLower} neste turno.`, 'warning');
+          }
+          break;
+
+        case 'espiao':
+          if (finalTarget) {
+            towerInfoToastsRef.current.push(
+              `${finalTarget.name} tem: ${finalTarget.cards.map(describeCard).join(', ') || 'Sem cartas'}`,
+            );
+            addLog(`${caster.name} espionou a mão de ${finalTarget.name}.`, 'action');
+          }
+          break;
+
+        case 'cacador':
+          if (chosenColor) {
+            players.forEach((player) => {
+              const index = player.cards.findIndex((handCard) => handCard.color === chosenColor && handCard.type === 'number');
+              if (index >= 0) {
+                const [discarded] = player.cards.splice(index, 1);
+                discardPile.push(discarded);
+              }
+            });
+            addLog(`${caster.name} caçou a cor ${chosenColor}; todos descartaram uma carta possível.`, 'warning');
+          }
+          break;
+
+        case 'escudo':
+          caster.towerShield = true;
+          addLog(`${caster.name} ativou Escudo contra o próximo ataque.`, 'success');
+          break;
+
+        case 'reflexao':
+          caster.towerReflectNext = true;
+          addLog(`${caster.name} preparou Reflexão para devolver o próximo ataque.`, 'success');
+          break;
+
+        case 'armadura':
+          caster.towerArmorTurns = 1;
+          addLog(`${caster.name} ativou Armadura até o próximo turno.`, 'success');
+          break;
+
+        case 'contra_magica':
+          caster.towerShield = true;
+          caster.towerReflectNext = true;
+          addLog(`${caster.name} preparou Contra Mágica como defesa reforçada.`, 'success');
+          break;
+
+        case 'sorte': {
+          const drawn = drawFromPile(drawPile, discardPile);
+          if (drawn) caster.cards.push(drawn);
+          addLog(`${caster.name} usou Sorte e comprou ${describeCard(drawn)}.`, 'success');
+          break;
+        }
+
+        case 'segunda_chance':
+          for (let i = 0; i < 2; i++) {
+            const drawn = drawFromPile(drawPile, discardPile);
+            if (drawn) caster.cards.push(drawn);
+          }
+          segundaChanceDiscardIds.forEach((discardId) => {
+            const index = caster.cards.findIndex((handCard) => handCard.id === discardId);
+            if (index >= 0) {
+              const [removed] = caster.cards.splice(index, 1);
+              if (removed) discardPile.push(removed);
+            }
+          });
+          addLog(`${caster.name} usou Segunda Chance.`, 'success');
+          break;
+
+        case 'reciclagem':
+        case 'cura': {
+          if (discardRecoveryId) {
+            const discardIndex = discardPile.findIndex((discarded) => discarded.id === discardRecoveryId);
+            if (discardIndex >= 0) {
+              const [removed] = discardPile.splice(discardIndex, 1);
+              caster.cards.push(removed);
+            }
+          }
+          addLog(`${caster.name} recuperou uma carta do descarte.`, 'success');
+          break;
+        }
+
+        case 'visao': {
+          const topCards = drawPile.slice(-5).reverse().map(describeCard).join(', ') || 'Monte vazio';
+          towerInfoToastsRef.current.push(`Topo do monte: ${topCards}`);
+          addLog(`${caster.name} usou Visão para olhar o topo do monte.`, 'success');
+          break;
+        }
+
+        case 'troca':
+          if (finalTarget && ownChosenCard && finalTarget.cards.length > 0) {
+            const ownIndex = caster.cards.findIndex((handCard) => handCard.id === ownChosenCard.id);
+            const targetIndexForCard = Math.floor(Math.random() * finalTarget.cards.length);
+            if (ownIndex >= 0) {
+              const [ownCard] = caster.cards.splice(ownIndex, 1);
+              const [targetCard] = finalTarget.cards.splice(targetIndexForCard, 1);
+              caster.cards.push(targetCard);
+              finalTarget.cards.push(ownCard);
+              addLog(`${caster.name} trocou uma carta com ${finalTarget.name}.`, 'success');
+            }
+          }
+          break;
+
+        case 'reforco':
+          for (let i = 0; i < 3; i++) {
+            const drawn = drawFromPile(drawPile, discardPile);
+            if (drawn) caster.cards.push(drawn);
+          }
+          addLog(`${caster.name} usou Reforço e comprou 3 cartas.`, 'success');
+          break;
+
+        case 'terremoto':
+          laidDownPhases.forEach((layout) => {
+            const owner = players.find((player) => player.id === layout.playerId);
+            owner?.cards.push(...layout.groups.flat());
+          });
+          laidDownPhases = [];
+          players.forEach((player) => {
+            player.hasLaidDownThisRound = false;
+          });
+          addLog(`${caster.name} causou um Terremoto: todos os desafios voltaram para as mãos.`, 'warning');
+          break;
+
+        case 'tempestade': {
+          const hands = players.map((player) => player.cards);
+          players.forEach((player, index) => {
+            player.cards = hands[(index - 1 + hands.length) % hands.length];
+          });
+          addLog(`${caster.name} invocou Tempestade: todos passaram a mão para a esquerda.`, 'warning');
+          break;
+        }
+
+        case 'eclipse':
+          addLog(`${caster.name} ativou Eclipse: poderes ficam bloqueados nesta rodada.`, 'warning');
+          break;
+
+        case 'colapso':
+          players.forEach((player) => {
+            for (let i = 0; i < 3; i++) {
+              const drawn = drawFromPile(drawPile, discardPile);
+              if (drawn) player.cards.push(drawn);
+            }
+          });
+          addLog(`${caster.name} causou Colapso: todos compraram 3 cartas.`, 'warning');
+          break;
+
+        case 'tempo_congelado':
+          caster.towerExtraTurn = true;
+          addLog(`${caster.name} congelou o tempo e terá um turno extra após descartar.`, 'success');
+          break;
+
+        case 'roubo_supremo':
+          if (finalTarget && finalTarget.cards.length > 0) {
+            const amount = Math.floor(finalTarget.cards.length / 2);
+            for (let i = 0; i < amount; i++) {
+              const stolenIndex = Math.floor(Math.random() * finalTarget.cards.length);
+              const [stolen] = finalTarget.cards.splice(stolenIndex, 1);
+              caster.cards.push(stolen);
+            }
+            addLog(`${caster.name} roubou metade da mão de ${finalTarget.name}.`, 'warning');
+          }
+          break;
+
+        case 'reset':
+          players.forEach((player) => {
+            player.phase = Math.max(1, player.phase - 1);
+          });
+          addLog(`${caster.name} usou Reset: todos voltaram um desafio.`, 'warning');
+          break;
+
+        case 'julgamento': {
+          const maxCards = Math.max(...players.map((player) => player.cards.length));
+          players.filter((player) => player.cards.length === maxCards).forEach((player) => {
+            for (let i = 0; i < 3; i++) {
+              const drawn = drawFromPile(drawPile, discardPile);
+              if (drawn) player.cards.push(drawn);
+            }
+          });
+          addLog(`${caster.name} lançou Julgamento contra quem tinha mais cartas.`, 'warning');
+          break;
+        }
+
+        case 'destino':
+          if (finalTarget) {
+            const casterPhase = caster.phase;
+            caster.phase = finalTarget.phase;
+            finalTarget.phase = casterPhase;
+            addLog(`${caster.name} trocou de desafio com ${finalTarget.name}.`, 'warning');
+          }
+          break;
+
+        default:
+          addLog(`${caster.name} usou ${card.powerName}.`, 'action');
+          break;
+      }
+
+      handAfterPowerRef.cards = [...caster.cards];
+
+      return {
+        ...prev,
+        drawPile,
+        discardPile,
+        players,
+        laidDownPhases,
+      };
+    });
+
+    towerInfoToastsRef.current.forEach((message) => showToast(message, 'info'));
+
+    if (towerInspectedCardId === card.id) {
+      setTowerInspectedCardId(null);
+    }
+
+    const remainingHand = handAfterPowerRef.cards;
+    if (remainingHand.length > 0) {
+      const nextCard = remainingHand.find((handCard) => handCard.type !== 'power') ?? remainingHand[0];
+      setSelectedCards([nextCard]);
+      setTowerInspectedCardId(nextCard.id);
+    } else {
+      clearCardSelection();
+    }
+  };
+
+  const handleUseTowerPower = async (card: Card) => {
+    if (!isTowerMaster || isOnline || !isMyTurn || turnState !== 'playing' || card.type !== 'power') return;
+    if (towerPrompt || towerHandPick) return;
+
+    if (room.roundNumber === towerPowersDisabledRound && card.powerId !== 'eclipse') {
+      showToast('Eclipse está ativo: ninguém pode usar poderes nesta rodada.', 'warning');
+      return;
+    }
+
+    const cost = card.powerCost ?? 0;
+    if ((activePlayer.energy ?? 3) < cost) {
+      showToast(`Energia insuficiente. ${card.powerName} custa ${cost} energia.`, 'warning');
+      return;
+    }
+
+    const needsTarget = new Set([
+      'roubo',
+      'quebra_sequencia',
+      'destruicao',
+      'inversao',
+      'congelar',
+      'maldicao',
+      'bloqueio',
+      'espiao',
+      'troca',
+      'roubo_supremo',
+      'destino',
+    ]);
+
+    let target: Player | null = null;
+    if (needsTarget.has(card.powerId ?? '')) {
+      const options = room.players.filter((player) => player.id !== activePlayer.id);
+      if (options.length === 0) {
+        showToast('Nenhum alvo disponível.', 'warning');
+        return;
+      }
+      target = await openTowerPrompt<Player>({
+        kind: 'player',
+        title: `Escolha o alvo para ${card.powerName}`,
+        subtitle: 'Toque em um jogador para aplicar o efeito.',
+        players: options,
+        floorLabel,
+      });
+      if (!target) return;
+    }
+
+    let chosenColor: Card['color'] | null = null;
+    if (card.powerId === 'cacador') {
+      chosenColor = await openTowerPrompt<Card['color']>({
+        kind: 'color',
+        title: 'Escolha uma cor',
+        subtitle: 'Todos descartarão uma carta da cor escolhida, se possível.',
+      });
+      if (!chosenColor) return;
+    }
+
+    let ownChosenCard: Card | null = null;
+    if (card.powerId === 'troca') {
+      ownChosenCard = await pickHandCard(
+        'Escolha uma carta sua para trocar',
+        activePlayer.cards.filter((handCard) => handCard.id !== card.id),
+        'Toque na carta da sua mão que será trocada.',
+      );
+      if (!ownChosenCard) return;
+    }
+
+    let discardRecoveryId: string | null = null;
+    if (card.powerId === 'reciclagem' || card.powerId === 'cura') {
+      const candidates = room.discardPile.filter((discarded) => discarded.id !== card.id);
+      if (candidates.length > 0) {
+        const picked = await openTowerPrompt<Card>({
+          kind: 'discard',
+          title: 'Escolha uma carta do descarte',
+          subtitle: 'Toque na carta que deseja recuperar. Cancele para usar o poder sem recuperar.',
+          cards: candidates,
+        });
+        if (picked) discardRecoveryId = picked.id;
+      }
+    }
+
+    let segundaChanceDiscardIds: string[] = [];
+    if (card.powerId === 'segunda_chance') {
+      const simulatedDrawPile = [...room.drawPile];
+      const simulatedDiscardPile = [...room.discardPile];
+      const handForPrompt = activePlayer.cards.filter((handCard) => handCard.id !== card.id);
+      for (let i = 0; i < 2; i++) {
+        const drawn = drawFromPile(simulatedDrawPile, simulatedDiscardPile);
+        if (drawn) handForPrompt.push(drawn);
+      }
+      for (let i = 0; i < 2 && handForPrompt.length > 0; i++) {
+        const remaining = handForPrompt.filter((handCard) => !segundaChanceDiscardIds.includes(handCard.id));
+        const picked = await pickHandCard(
+          `Segunda Chance — ${i + 1}ª carta para descartar`,
+          remaining,
+          'Toque na carta da sua mão que será descartada.',
+        );
+        if (!picked) return;
+        segundaChanceDiscardIds.push(picked.id);
+      }
+    }
+
+    applyTowerPower(card, {
+      target,
+      chosenColor,
+      ownChosenCard,
+      discardRecoveryId,
+      segundaChanceDiscardIds,
+    });
   };
 
   // ----------------------------------------------------
@@ -498,12 +1144,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     clearCardSelection();
 
     let roundEndResult: ReturnType<typeof evaluateRoundEnd> = null;
+    let consumedExtraTurn = false;
 
     setRoom(prev => {
       const updatedPlayers = prev.players.map((p, idx) => {
         if (idx === prev.currentTurnIndex) {
           const newHand = p.cards.filter(c => c.id !== card.id);
-          return { ...p, cards: newHand };
+          return { ...p, cards: newHand, towerCannotLayDown: false };
         }
         
         if (skipPlayerId && p.id === skipPlayerId) {
@@ -528,6 +1175,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         };
       }
 
+      if (updatedPlayers[prev.currentTurnIndex]?.towerExtraTurn) {
+        consumedExtraTurn = true;
+        updatedPlayers[prev.currentTurnIndex] = {
+          ...updatedPlayers[prev.currentTurnIndex],
+          towerExtraTurn: false,
+        };
+        return {
+          ...prev,
+          players: updatedPlayers,
+          discardPile: updatedDiscard,
+          currentTurnIndex: prev.currentTurnIndex,
+        };
+      }
+
       const advanced = advanceToNextPlayer(updatedPlayers, prev.currentTurnIndex);
       advanced.skippedPlayers.forEach((skipped) => {
         addLog(`${avatarDisplayText(skipped.avatar)} ${skipped.name} foi pulado.`, 'warning');
@@ -546,7 +1207,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} descartou Skip e pulou ${avatarDisplayText(skippedUser?.avatar ?? '')} ${skippedUser?.name}.`, 'warning');
       playSound('skip');
     } else {
-      const cardDesc = card.type === 'wild' ? 'Curinga' : `${card.value} (${card.color})`;
+      const cardDesc = card.type === 'power'
+        ? card.powerName ?? 'Poder'
+        : card.type === 'wild'
+          ? 'Curinga'
+          : `${card.value} (${card.color})`;
       addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} descartou ${cardDesc}.`, 'action');
     }
 
@@ -555,10 +1220,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       setShowSkipSelector(false);
     }
 
-    if (roundEndResult) {
-      handleRoundEnd(roundEndResult.winner, roundEndResult.allAdvance);
+    const finalRoundEndResult = roundEndResult as NonNullable<ReturnType<typeof evaluateRoundEnd>> | null;
+    if (finalRoundEndResult) {
+      handleRoundEnd(finalRoundEndResult.winner, finalRoundEndResult.allAdvance);
     } else {
-      setTurnState('idle');
+      if (consumedExtraTurn) {
+        addLog(`${activePlayer.name} ganhou o turno extra de Tempo Congelado.`, 'success');
+        setTurnState('drawing');
+      } else {
+        setTurnState('idle');
+      }
     }
   };
 
@@ -577,7 +1248,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
 
     const currentPlayer = room.players[room.currentTurnIndex];
-    if (!currentPlayer || currentPlayer.isSkipped) return;
+    if (!currentPlayer) return;
+
+    if (currentPlayer.isSkipped) {
+      const advanced = ensureActivePlayerNotSkipped(room.players, room.currentTurnIndex);
+      advanced.skippedPlayers.forEach((skipped) => {
+        addLog(`${avatarDisplayText(skipped.avatar)} ${skipped.name} foi pulado.`, 'warning');
+      });
+      setRoom((prev) => ({
+        ...prev,
+        players: advanced.players,
+        currentTurnIndex: advanced.currentTurnIndex,
+      }));
+      return;
+    }
 
     if (room.settings.gameMode === 'pass_and_play' && !isOnline) {
       // In local multiplayer, show the overlay transition screen
@@ -612,45 +1296,55 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleToggleBuilder = () => {
     playSound('click');
     setIsBuildingPhase(prev => {
+      clearCardSelection();
       if (prev) {
         setBuildGroup1([]);
         setBuildGroup2([]);
-        clearCardSelection();
       }
       return !prev;
     });
   };
 
   const addCardsToBuildGroup = (cards: Card[], groupNum: 1 | 2) => {
-    if (cards.length === 0) return;
+    const phaseCards = cards.filter((card) => card.type !== 'power');
+    if (phaseCards.length === 0) return;
     playSound('click');
-    const incomingIds = new Set(cards.map((c) => c.id));
+    const incomingIds = new Set(phaseCards.map((c) => c.id));
 
     if (groupNum === 1) {
       setBuildGroup2((prev) => prev.filter((c) => !incomingIds.has(c.id)));
       setBuildGroup1((prev) => {
         const existing = new Set(prev.map((c) => c.id));
-        return [...prev, ...cards.filter((c) => !existing.has(c.id))];
+        return [...prev, ...phaseCards.filter((c) => !existing.has(c.id))];
       });
     } else {
       setBuildGroup1((prev) => prev.filter((c) => !incomingIds.has(c.id)));
       setBuildGroup2((prev) => {
         const existing = new Set(prev.map((c) => c.id));
-        return [...prev, ...cards.filter((c) => !existing.has(c.id))];
+        return [...prev, ...phaseCards.filter((c) => !existing.has(c.id))];
       });
     }
     clearCardSelection();
   };
 
-  const addCardToBuildGroup = (card: Card, groupNum: 1 | 2) => {
-    addCardsToBuildGroup([card], groupNum);
-  };
-
   const handleHandCardClick = (card: Card) => {
+    if (towerHandPick) {
+      if (towerHandPick.eligibleIds.has(card.id)) {
+        playSound('click');
+        resolveHandPick(card);
+      }
+      return;
+    }
+
     if (!isMyTurn) return;
     playSound('click');
 
+    if (isTowerMaster) {
+      setTowerInspectedCardId(card.id);
+    }
+
     if (isBuildingPhase) {
+      if (card.type === 'power') return;
       setSelectedCards((prev) => {
         const exists = prev.some((c) => c.id === card.id);
         if (exists) return prev.filter((c) => c.id !== card.id);
@@ -676,9 +1370,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   // Lay Down Phase Action
   const handleLayDownPhase = () => {
+    if (isTowerMaster && activePlayer?.towerCannotLayDown) {
+      showToast(`Você está bloqueado e não pode baixar ${floorWordLower} neste turno.`, 'warning');
+      return;
+    }
+
     const check = checkBuilderValidity();
     if (!check.isValid) {
-      alert(check.error || "Fase inválida!");
+      showToast(check.error || 'Combinação inválida!', 'error');
       return;
     }
 
@@ -739,7 +1438,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       };
     });
 
-    addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} baixou a fase ${activePlayer.phase}.`, 'success');
+    addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} baixou o ${floorLabel(activePlayer.phase)}.`, 'success');
 
     const endResult = evaluateRoundEnd(playersAfterLayDown, laidDownAfterLayDown, {
       drawPile: room.drawPile,
@@ -768,7 +1467,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleHitCard = (targetPlayerId: string, groupIndex: number) => {
     if (!isMyTurn || turnState !== 'playing' || !selectedHitCard) return;
     if (!activePlayer.hasLaidDownThisRound) {
-      alert("Você precisa baixar a sua própria fase antes de poder bater nas fases dos adversários!");
+      showToast(`Você precisa baixar o seu ${floorWordLower} antes de bater nas mesas dos adversários!`, 'warning');
       return;
     }
 
@@ -785,7 +1484,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     // Validate if hit is allowed
     if (!isValidHit(selectedHitCard, group, category)) {
-      alert(`Esta carta não se encaixa neste grupo (${category}).`);
+      showToast(`Esta carta não se encaixa neste grupo (${category}).`, 'warning');
       return;
     }
 
@@ -980,7 +1679,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     playSound('click');
     if (isOnline) {
       if (!onlineSession?.isHost) {
-        alert('Apenas o host pode iniciar a próxima rodada.');
+        showToast('Apenas o host pode iniciar a próxima rodada.', 'warning');
         return;
       }
       sendOnlineAction({ type: 'next_round' }, () => {
@@ -1306,6 +2005,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       {/* 1. Header Toolbar */}
       <header className="panel p-4 mb-5 flex flex-wrap gap-4 items-center justify-between">
         <div className="flex items-center gap-3">
+          <div className="bg-surface-raised border border-default px-3 py-1.5 rounded-lg text-secondary font-semibold text-sm">
+            {gameTitle}
+          </div>
           <div className="bg-accent-soft/40 border border-accent px-3 py-1.5 rounded-lg text-accent font-semibold text-sm">
             Rodada {room.roundNumber}
           </div>
@@ -1315,13 +2017,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         </div>
 
         <div className="hidden lg:flex items-center gap-3 text-xs bg-app px-3 py-1.5 rounded-lg border border-default">
-          <span className="text-muted font-medium">Fases:</span>
+          <span className="text-muted font-medium">{isTowerMaster ? 'Desafios:' : 'Fases:'}</span>
           <div className="flex gap-2">
             {room.players.map(p => (
               <div key={p.id} className="flex items-center gap-1 border-r border-default pr-2 last:border-0">
                 <PlayerAvatar avatar={p.avatar} color={p.color} size={22} isBot={p.isBot} />
                 <span className="text-[10px] text-muted truncate max-w-[60px]">{p.name}</span>
-                <span className="text-xs font-semibold text-accent">F{p.phase}</span>
+                <span className="text-xs font-semibold text-accent">{isTowerMaster ? `D${p.phase}` : `F${p.phase}`}</span>
               </div>
             ))}
           </div>
@@ -1387,7 +2089,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           </span>
                         )}
                         {player.hasLaidDownThisRound && (
-                          <span className="absolute -top-1 -right-1 bg-emerald-700 border border-default rounded-full w-3.5 h-3.5 flex items-center justify-center" title="Baixou fase">
+                          <span className="absolute -top-1 -right-1 bg-emerald-700 border border-default rounded-full w-3.5 h-3.5 flex items-center justify-center" title={isTowerMaster ? 'Baixou desafio' : 'Baixou fase'}>
                             <Check className="w-2 h-2 text-white" />
                           </span>
                         )}
@@ -1403,7 +2105,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     </div>
 
                     <div className="text-right shrink-0">
-                      <div className="text-xs font-black text-accent">FASE {player.phase}</div>
+                      <div className="text-xs font-black text-accent">{isTowerMaster ? 'DESAFIO' : 'FASE'} {player.phase}</div>
                       <div className="text-[10px] font-semibold text-muted font-mono">{player.score} pts</div>
                     </div>
                   </div>
@@ -1417,13 +2119,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         <div className="order-2 lg:col-span-8 lg:col-start-1 lg:row-start-1">
           <div className="bg-surface border border-default rounded-2xl p-5 shadow-xl space-y-4">
             <h3 className="text-sm font-black uppercase tracking-wider text-secondary flex items-center justify-between">
-              <span>Mesa: Fases Baixadas</span>
+              <span>{isTowerMaster ? 'Mesa: Desafios Baixados' : 'Mesa: Fases Baixadas'}</span>
               <span className="text-xs text-muted font-normal normal-case">Clique em uma carta na sua mão e depois clique no botão "Bater" do grupo correspondente.</span>
             </h3>
 
             {room.laidDownPhases.length === 0 ? (
               <div className="bg-surface-muted rounded-xl p-8 border border-dashed border-default text-center text-muted">
-                <p className="text-sm">Nenhum jogador baixou sua fase nesta rodada ainda.</p>
+                <p className="text-sm">Nenhum jogador baixou seu {floorWordLower} nesta rodada ainda.</p>
                 <p className="text-xs mt-1 text-muted">Seja o primeiro a baixar para começar a bater!</p>
               </div>
             ) : (
@@ -1448,7 +2150,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           <span className="font-bold text-xs text-secondary">{layout.playerName}</span>
                         </div>
                         <span className="text-[10px] font-black bg-accent-soft/30 border border-accent/30 text-accent px-2 py-0.5 rounded-full">
-                          Fase {layout.phaseId} Completa!
+                          {floorLabel(layout.phaseId)} completo!
                         </span>
                       </div>
 
@@ -1540,38 +2242,65 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     const topDiscard = room.discardPile[room.discardPile.length - 1];
                     const isSkip = topDiscard.type === 'skip';
                     const isWild = topDiscard.type === 'wild';
+                    const isPower = isTowerPowerCard(topDiscard);
+                    const powerCategory = topDiscard.powerCategory ?? 'attack';
 
                     return (
                       <button
                         onClick={() => handleDrawCard('discard')}
                         disabled={!isMyTurn || turnState !== 'drawing' || isSkip || isActionPending}
                         className={`playing-card playing-card--discard flex flex-col justify-between text-left transition-all ${
-                          isWild ? 'playing-card--wild' : isSkip ? 'playing-card--skip' : ''
+                          isPower
+                            ? `playing-card--tower playing-card--tower-${powerCategory}`
+                            : isWild
+                              ? 'playing-card--wild'
+                              : isSkip
+                                ? 'playing-card--skip'
+                                : ''
                         } ${
                           isMyTurn && turnState === 'drawing' && !isSkip && !isActionPending
                             ? 'playing-card--selected border-success hover:scale-105 active:scale-95 cursor-pointer'
                             : 'cursor-not-allowed opacity-80'
                         }`}
                       >
-                        <div className={`playing-card__pip ${cardPipClass(topDiscard.color)}`}>
-                          {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
-                        </div>
+                        {isPower ? (
+                          <>
+                            <div className="playing-card__power-header">
+                              <span>{towerPowerCategoryLabel(topDiscard)}</span>
+                              <span>{topDiscard.powerCost ?? 0}E</span>
+                            </div>
 
-                        <div className="playing-card__center text-center flex items-center justify-center">
-                          {isWild ? (
-                            <Wand2 className="playing-card__icon-lg" />
-                          ) : isSkip ? (
-                            <Ban className="playing-card__icon-lg" />
-                          ) : (
-                            <span className={`playing-card__value ${cardPipClass(topDiscard.color)}`}>
-                              {topDiscard.value}
-                            </span>
-                          )}
-                        </div>
+                            <div className="playing-card__power-art">
+                              <img src={topDiscard.imageSrc} alt="" draggable={false} />
+                            </div>
 
-                        <div className={`playing-card__pip rotate-180 flex justify-end ${cardPipClass(topDiscard.color)}`}>
-                          {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
-                        </div>
+                            <div className="playing-card__power-name">
+                              {topDiscard.powerName}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`playing-card__pip ${cardPipClass(topDiscard.color)}`}>
+                              {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
+                            </div>
+
+                            <div className="playing-card__center text-center flex items-center justify-center">
+                              {isWild ? (
+                                <Wand2 className="playing-card__icon-lg" />
+                              ) : isSkip ? (
+                                <Ban className="playing-card__icon-lg" />
+                              ) : (
+                                <span className={`playing-card__value ${cardPipClass(topDiscard.color)}`}>
+                                  {topDiscard.value}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className={`playing-card__pip rotate-180 flex justify-end ${cardPipClass(topDiscard.color)}`}>
+                              {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
+                            </div>
+                          </>
+                        )}
                       </button>
                     );
                   })()
@@ -1596,7 +2325,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
                 <p className="text-xs text-muted leading-relaxed">
                   {turnState === 'drawing' && 'Compre do monte ou do descarte.'}
-                  {turnState === 'playing' && 'Baixe sua fase, bata cartas ou descarte para passar o turno.'}
+                  {turnState === 'playing' && `Baixe seu ${floorWordLower}, bata cartas ou descarte para passar o turno.`}
                   {turnState === 'idle' && `Aguardando ${activePlayer.name}...`}
                 </p>
               </div>
@@ -1674,7 +2403,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             <span style={{ color: msg.senderColor }}>{msg.senderName}</span>
                             <span className="text-[9px] font-semibold text-muted font-mono">{msg.timestamp}</span>
                           </div>
-                          <div className="bg-surface border border-default/60 p-2 rounded-lg text-secondary break-words max-w-[95%]">
+                          <div className="bg-surface border border-default/60 p-2 rounded-lg text-secondary wrap-break-word max-w-[95%]">
                             {msg.message}
                           </div>
                         </>
@@ -1732,13 +2461,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         {isMyTurn && turnState === 'playing' && isBuildingPhase && (
         <div className="panel border-accent/50 p-5 mb-4 relative">
           <div className="absolute top-2 right-2 text-[10px] bg-accent-soft/50 text-accent font-medium px-2 py-0.5 rounded uppercase">
-            Organizador de Fase {activePlayer.phase}
+            Organizador de {floorWord} {activePlayer.phase}
           </div>
 
           <div className="space-y-4">
             <div className="leading-tight">
               <h4 className="text-sm font-black text-secondary">
-                Fase {activePlayer.phase}: {STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.name}
+                {floorLabel(activePlayer.phase)}: {STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.description}
               </h4>
               <p className="text-xs text-muted">
                 {STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.description}
@@ -1857,7 +2586,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   }`}
                 >
                   <Layers className="w-4 h-4" />
-                  <span>Baixar fase {activePlayer.phase}</span>
+                  <span>Baixar {floorWordLower} {activePlayer.phase}</span>
                 </button>
               </div>
             </div>
@@ -1874,6 +2603,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               <span className="text-[11px] font-semibold bg-surface text-accent/90 border border-default px-2.5 py-0.5 rounded-full">
                 {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).length} cartas
               </span>
+              {isTowerMaster && (
+                <span className="text-[11px] font-semibold bg-accent-soft text-accent border border-accent px-2.5 py-0.5 rounded-full">
+                  Energia {myPlayer.energy ?? 3}/6
+                </span>
+              )}
             </div>
 
             {isMyTurn && turnState === 'playing' && !myPlayer.hasLaidDownThisRound && (
@@ -1886,7 +2620,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 }`}
               >
                 <Layers className="w-3 h-3" />
-                <span>{isBuildingPhase ? 'Fechar organizador' : `Organizar fase ${myPlayer.phase}`}</span>
+                <span>{isBuildingPhase ? 'Fechar organizador' : `Organizar ${floorWordLower} ${myPlayer.phase}`}</span>
               </button>
             )}
           </div>
@@ -1895,16 +2629,29 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           {isMyTurn && (
             <div className="flex flex-wrap gap-2 justify-end">
               {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
-                <button
-                  onClick={() => handleDiscard(primarySelectedCard)}
-                  className="px-3 py-1 btn-danger font-semibold text-[10px] rounded-md cursor-pointer flex items-center gap-1"
-                >
-                  {primarySelectedCard.type === 'skip' ? (
-                    <><Ban className="w-3 h-3" /> Pular</>
-                  ) : (
-                    <><Trash2 className="w-3 h-3" /> Descartar</>
+                <>
+                  {isTowerMaster && primarySelectedCard.type === 'power' && !towerPrompt && !towerHandPick && (
+                    <button
+                      onClick={() => void handleUseTowerPower(primarySelectedCard)}
+                      disabled={room.roundNumber === towerPowersDisabledRound && primarySelectedCard.powerId !== 'eclipse'}
+                      className="px-3 py-1 btn-primary font-semibold text-[10px] rounded-md cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Wand2 className="w-3 h-3" />
+                      <span>Usar Poder ({primarySelectedCard.powerCost ?? 0}E)</span>
+                    </button>
                   )}
-                </button>
+
+                  <button
+                    onClick={() => handleDiscard(primarySelectedCard)}
+                    className="px-3 py-1 btn-danger font-semibold text-[10px] rounded-md cursor-pointer flex items-center gap-1"
+                  >
+                    {primarySelectedCard.type === 'skip' ? (
+                      <><Ban className="w-3 h-3" /> Pular</>
+                    ) : (
+                      <><Trash2 className="w-3 h-3" /> Descartar</>
+                    )}
+                  </button>
+                </>
               )}
 
               {isBuildingPhase && selectedCards.length > 0 && (
@@ -1968,10 +2715,48 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <p className="text-[10px] text-muted mt-1">Suas cartas aparecem aqui no seu turno.</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            
+          <div className="space-y-3">
+            {towerHandPick && (
+              <div className="tower-hand-pick-banner">
+                <div className="tower-hand-pick-banner__text">
+                  <p className="tower-hand-pick-banner__title">{towerHandPick.title}</p>
+                  {towerHandPick.subtitle && (
+                    <p className="tower-hand-pick-banner__subtitle">{towerHandPick.subtitle}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => resolveHandPick(null)}
+                  className="tower-hand-pick-banner__cancel"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+
+          <div className={isTowerMaster ? 'tower-hand-layout' : 'space-y-4'}>
+            {isTowerMaster && (
+              <aside className="tower-hand-side tower-hand-side--info">
+                <p className="tower-hand-side__label">Carta Selecionada</p>
+                {inspectedCard && inspectedCardInfo ? (
+                  <>
+                    <h4 className="tower-hand-side__title">{inspectedCardInfo.name}</h4>
+                    <TowerInspectedCardPreview card={inspectedCard} />
+                    <p className="tower-hand-side__desc">{inspectedCardInfo.description}</p>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="tower-hand-side__title text-muted">Nenhuma</h4>
+                    <p className="tower-hand-side__desc">
+                      Toque em uma carta da mão para ver o nome, a imagem e a explicação do efeito.
+                    </p>
+                  </>
+                )}
+              </aside>
+            )}
+
             {/* Cards fan layout */}
-            <div className={`hand-fan${compactHand ? ' hand-fan--stack' : ''}`}>
+            <div className={`hand-fan${compactHand ? ' hand-fan--stack' : ''}${isTowerMaster ? ' hand-fan--in-layout' : ''}`}>
               {(() => {
                 const rawCards = myPlayer.cards.filter((c) => !c.id.startsWith('hidden-'));
                 const visibleCards = handSortMode
@@ -1991,58 +2776,90 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 const isInGroup2 = buildGroup2.some(c => c.id === card.id);
                 const isW = card.type === 'wild';
                 const isS = card.type === 'skip';
+                const isPower = isTowerPowerCard(card);
+                const powerCategory = card.powerCategory ?? 'attack';
                 const pipClass = cardPipClass(card.color);
                 const { translateX, rotate, zIndex } = getHandFanLayout(index, total, fanOptions);
-                const selectedLift = compactHand && isSelected ? '-2rem' : '0px';
+                const selectedDirection = index < (total - 1) / 2 ? -1 : 1;
+                const selectedSpreadX = !compactHand && isSelected ? selectedDirection * 18 : 0;
+                const selectedLift = isSelected ? (compactHand ? '-2rem' : '-1.75rem') : '0px';
+
+                const isHandPickEligible = towerHandPick?.eligibleIds.has(card.id) ?? false;
+                const isHandPickBlocked = !!towerHandPick && !isHandPickEligible;
 
                 return (
                   <button
                     key={card.id}
-                    disabled={!isMyTurn}
+                    disabled={!towerHandPick && !isMyTurn}
                     onClick={() => handleHandCardClick(card)}
                     className={`hand-fan__card playing-card text-left ${
-                      isW ? 'playing-card--wild' : isS ? 'playing-card--skip' : ''
+                      isPower
+                        ? `playing-card--tower playing-card--tower-${powerCategory}`
+                        : isW
+                          ? 'playing-card--wild'
+                          : isS
+                            ? 'playing-card--skip'
+                            : ''
                     } ${isSelected ? 'playing-card--selected' : ''} ${
                       isInGroup1 || isInGroup2 ? 'playing-card--in-group' : ''
+                    } ${isHandPickEligible ? 'playing-card--hand-pick' : ''} ${
+                      isHandPickBlocked ? 'playing-card--hand-pick-blocked' : ''
                     }`}
                     style={{
                       zIndex,
-                      ['--fan-x' as string]: `${translateX}px`,
+                      ['--fan-x' as string]: `${translateX + selectedSpreadX}px`,
                       ['--fan-rot' as string]: `${rotate}deg`,
                       ['--fan-y' as string]: selectedLift,
                     }}
                   >
-                    <div className="h-full flex flex-col justify-between">
-                    <div className={`playing-card__pip ${pipClass}`}>
-                      {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
-                    </div>
+                    {isPower ? (
+                      <div className="h-full flex flex-col justify-between">
+                        <div className="playing-card__power-header">
+                          <span>{towerPowerCategoryLabel(card)}</span>
+                          <span>{card.powerCost ?? 0}E</span>
+                        </div>
 
-                    <div className="playing-card__center text-center flex items-center justify-center">
-                      {isW ? (
-                        <Wand2 className="playing-card__icon-lg" />
-                      ) : isS ? (
-                        <Ban className="playing-card__icon-lg" />
-                      ) : (
-                        <span className={`playing-card__value ${pipClass}`}>
-                          {card.value}
-                        </span>
-                      )}
-                    </div>
+                        <div className="playing-card__power-art">
+                          <img src={card.imageSrc} alt="" draggable={false} />
+                        </div>
 
-                    <div className="w-full flex justify-between items-end">
-                      {isInGroup1 && (
-                        <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G1</span>
-                      )}
-                      {isInGroup2 && (
-                        <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G2</span>
-                      )}
-                      {!isInGroup1 && !isInGroup2 && <span />}
+                        <div className="playing-card__power-name">
+                          {card.powerName}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col justify-between">
+                        <div className={`playing-card__pip ${pipClass}`}>
+                          {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
+                        </div>
 
-                      <span className={`playing-card__pip rotate-180 flex justify-end ${pipClass}`}>
-                        {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
-                      </span>
-                    </div>
-                    </div>
+                        <div className="playing-card__center text-center flex items-center justify-center">
+                          {isW ? (
+                            <Wand2 className="playing-card__icon-lg" />
+                          ) : isS ? (
+                            <Ban className="playing-card__icon-lg" />
+                          ) : (
+                            <span className={`playing-card__value ${pipClass}`}>
+                              {card.value}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="w-full flex justify-between items-end">
+                          {isInGroup1 && (
+                            <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G1</span>
+                          )}
+                          {isInGroup2 && (
+                            <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G2</span>
+                          )}
+                          {!isInGroup1 && !isInGroup2 && <span />}
+
+                          <span className={`playing-card__pip rotate-180 flex justify-end ${pipClass}`}>
+                            {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </button>
                 );
               })}
@@ -2051,11 +2868,44 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               })()}
             </div>
 
+            {isTowerMaster && legendaryInfo && (
+              <aside className="tower-hand-side tower-hand-side--legendary">
+                <p className="tower-hand-side__label">Lendária</p>
+                <div className={`playing-card playing-card--tower playing-card--tower-legendary tower-legendary-card${myPlayer.towerLegendaryUsedThisRound ? ' tower-legendary-card--used' : ''}`}>
+                  <div className="playing-card__power-art">
+                    <img src={legendaryInfo.imageSrc} alt="" draggable={false} />
+                  </div>
+                  <div className="playing-card__power-name">{legendaryInfo.name}</div>
+                </div>
+                <p className="tower-hand-side__usage">
+                  {myPlayer.towerLegendaryUsedThisRound ? '0/1' : '1/1'}
+                </p>
+                <p className="tower-hand-side__usage-hint">
+                  {myPlayer.towerLegendaryUsedThisRound
+                    ? 'Usada nesta rodada'
+                    : 'Disponível nesta rodada'}
+                </p>
+              </aside>
+            )}
+
+          </div>
           </div>
         )}
       </footer>
 
       </div>
+
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      {towerPrompt && (
+        <TowerPromptModal
+          prompt={towerPrompt}
+          onSelectPlayer={(player) => resolveTowerPrompt(player)}
+          onSelectColor={(color) => resolveTowerPrompt(color)}
+          onSelectDiscard={(discardCard) => resolveTowerPrompt(discardCard)}
+          onCancel={cancelTowerPrompt}
+        />
+      )}
 
       {/* SKIP SELECTOR MODAL TARGET */}
       {showSkipSelector && skipCardPending && (
@@ -2085,7 +2935,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     </div>
 
                     <div className="text-muted font-mono text-[10px]">
-                      Fase {player.phase} • {player.score} pts
+                      {floorLabel(player.phase)} • {player.score} pts
                     </div>
                   </button>
                 ))}
@@ -2120,8 +2970,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               </h2>
               <p className="text-xs text-muted">
                 {roundEndReason === 'all_laid_down'
-                  ? 'Todos os jogadores baixaram suas fases — todos avançam para a próxima fase!'
-                  : 'Um jogador ficou sem cartas — apenas quem baixou a fase avança.'}
+                  ? isTowerMaster
+                    ? 'Todos os jogadores baixaram seus desafios — todos avançam para o próximo desafio!'
+                    : 'Todos os jogadores baixaram suas fases — todos avançam para a próxima fase!'
+                  : isTowerMaster
+                    ? 'Um jogador ficou sem cartas — apenas quem baixou o desafio avança.'
+                    : 'Um jogador ficou sem cartas — apenas quem baixou a fase avança.'}
               </p>
               {autoStartCountdown !== null && autoStartCountdown > 0 && (
                 <p className="text-[11px] text-accent font-semibold">
@@ -2154,14 +3008,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     <div className="flex items-center space-x-8">
                       {/* Phase outcome */}
                       <div className="text-center">
-                        <div className="text-[10px] uppercase font-bold text-muted mb-0.5">Status da Fase</div>
+                        <div className="text-[10px] uppercase font-bold text-muted mb-0.5">
+                          {isTowerMaster ? 'Status do Desafio' : 'Status da Fase'}
+                        </div>
                         {hadLaidDown ? (
                           <span className="text-[10px] bg-success-muted/40 border border-success/30 text-success px-2 py-0.5 rounded-full font-bold">
-                            Completa! ➔ Ir para F{player.phase}
+                            Completo! ➔ Ir para {isTowerMaster ? `D${player.phase}` : `F${player.phase}`}
                           </span>
                         ) : (
                           <span className="text-[10px] bg-danger-muted/40 border border-danger/30 text-danger px-2 py-0.5 rounded-full font-bold">
-                            Falhou ➔ Mantém F{player.phase}
+                            Falhou ➔ Mantém {isTowerMaster ? `D${player.phase}` : `F${player.phase}`}
                           </span>
                         )}
                       </div>
@@ -2235,11 +3091,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   </div>
 
                   <div className="inline-flex items-center gap-1 px-4 py-1.5 bg-accent-soft/50 border border-accent text-accent font-medium rounded-full text-xs">
-                    <span>Fase 10 — {champion.score} pts</span>
+                    <span>{isTowerMaster ? `Desafio 10 — ${champion.score} pts` : `Fase 10 — ${champion.score} pts`}</span>
                   </div>
 
                   <p className="text-xs text-muted leading-relaxed px-2">
-                    {champion.name} completou as 10 fases com a menor pontuação.
+                    {isTowerMaster
+                      ? `${champion.name} completou os 10 desafios com a menor pontuação.`
+                      : `${champion.name} completou as 10 fases com a menor pontuação.`}
                   </p>
                 </div>
               );
@@ -2255,7 +3113,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     <PlayerAvatar avatar={player.avatar} color={player.color} size={22} isBot={player.isBot} />
                     <span className="font-bold" style={{ color: player.color }}>{player.name}</span>
                   </div>
-                  <div className="text-muted font-mono">Fase {player.phase} ({player.score} pts)</div>
+                  <div className="text-muted font-mono">{floorLabel(player.phase)} ({player.score} pts)</div>
                 </div>
               ))}
             </div>
@@ -2284,7 +3142,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       {showTransition && transitionPlayer && (
         <PassAndPlayTransition 
           player={transitionPlayer} 
-          onConfirm={handleTransitionConfirm} 
+          onConfirm={handleTransitionConfirm}
+          useFloorTerminology={isTowerMaster}
         />
       )}
 

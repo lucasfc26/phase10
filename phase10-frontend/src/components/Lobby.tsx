@@ -70,6 +70,7 @@ type CardGameIdLocal = CardGameId;
 function minPlayersForGame(game: CardGameId): number {
   if (game === "truco") return 4;
   if (game === "poker") return 2;
+  if (game === "tower_master") return 2;
   return 3;
 }
 
@@ -193,7 +194,7 @@ export const Lobby: React.FC<LobbyProps> = ({
     const cap = maxPlayersForGame(cardGame);
     setMaxPlayers((prev) => {
       if (cardGame === "truco") return 4;
-      return Math.min(prev, cap);
+      return Math.max(minPlayersForGame(cardGame), Math.min(prev, cap));
     });
   }, [cardGame]);
 
@@ -226,6 +227,13 @@ export const Lobby: React.FC<LobbyProps> = ({
     setPlayerName(randomName);
     setCharacterConfig(randomCharacterConfig());
     setSelectedColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
+  };
+
+  const handleSelectTowerMaster = () => {
+    setCardGame("tower_master");
+    if (gameMode === "online") {
+      setGameMode("bots");
+    }
   };
 
   // Step 1 -> Step 2
@@ -285,11 +293,6 @@ export const Lobby: React.FC<LobbyProps> = ({
 
     if (finalName.length > 18) {
       alert(t.lobby.nameTooLong);
-      return;
-    }
-
-    if (cardGame === "tower_master") {
-      alert(t.lobby.gameInDevelopment);
       return;
     }
 
@@ -506,6 +509,8 @@ export const Lobby: React.FC<LobbyProps> = ({
         alert(t.lobby.minPlayersTruco);
       } else if (cardGame === "poker") {
         alert(t.lobby.minPlayersPoker);
+      } else if (cardGame === "tower_master") {
+        alert(t.lobby.minPlayersTower);
       } else {
         alert(t.lobby.minPlayersPhase10);
       }
@@ -553,7 +558,7 @@ export const Lobby: React.FC<LobbyProps> = ({
       return;
     }
 
-    // Phase 10 (local modes)
+    // Phase-style local modes
     const createdRoom: GameRoom = {
       id: `room-${generateId()}`,
       code: roomCode || "ROOMP10",
@@ -573,11 +578,11 @@ export const Lobby: React.FC<LobbyProps> = ({
         botDelay: botSpeed,
         customPhases: false,
         allowBots: allowBotsToggle,
-        cardGame: "phase10",
+        cardGame,
       },
     };
 
-    onStartGame({ cardGame: "phase10", room: createdRoom }, profile);
+    onStartGame({ cardGame, room: createdRoom }, profile);
   };
 
   return (
@@ -764,14 +769,18 @@ export const Lobby: React.FC<LobbyProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => alert(t.lobby.gameInDevelopment)}
-                  className="relative p-4 rounded-xl border flex flex-col text-left transition-all bg-surface-muted border-default text-muted opacity-75 cursor-not-allowed"
+                  onClick={handleSelectTowerMaster}
+                  className={`relative p-4 rounded-xl border flex flex-col text-left transition-all ${
+                    cardGame === "tower_master"
+                      ? "bg-accent-soft border-accent text-secondary"
+                      : "bg-surface-muted border-default text-muted hover:border-default"
+                  }`}
                 >
-                  <span className="absolute top-2 right-2 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                    {t.lobby.inDevelopment}
+                  <span className="absolute top-2 right-2 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-success-muted text-success border border-success">
+                    MVP
                   </span>
                   <span className="font-extrabold text-xs text-primary mb-1 flex items-center space-x-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-muted" />
+                    <Building2 className="w-3.5 h-3.5 text-accent" />
                     <span>{t.lobby.gameTower}</span>
                   </span>
                   <span className="text-[10px] leading-relaxed">
@@ -980,6 +989,18 @@ export const Lobby: React.FC<LobbyProps> = ({
                       <option value={4}>4 Jogadores</option>
                       <option value={5}>5 Jogadores</option>
                       <option value={6}>6 Jogadores</option>
+                    </>
+                  ) : cardGame === "tower_master" ? (
+                    <>
+                      <option value={2}>2 Jogadores (Mínimo)</option>
+                      <option value={3}>3 Jogadores</option>
+                      <option value={4}>4 Jogadores</option>
+                      <option value={5}>5 Jogadores</option>
+                      <option value={6}>6 Jogadores</option>
+                      <option value={7}>7 Jogadores</option>
+                      <option value={8}>8 Jogadores</option>
+                      <option value={9}>9 Jogadores</option>
+                      <option value={10}>10 Jogadores (Máximo)</option>
                     </>
                   ) : (
                     <>
@@ -1214,7 +1235,9 @@ export const Lobby: React.FC<LobbyProps> = ({
                   ? t.lobby.minPlayersTruco
                   : cardGame === "poker"
                     ? t.lobby.minPlayersPoker
-                    : t.lobby.minPlayersPhase10}
+                    : cardGame === "tower_master"
+                      ? t.lobby.minPlayersTower
+                      : t.lobby.minPlayersPhase10}
               </span>
             </div>
           )}

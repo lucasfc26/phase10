@@ -6,9 +6,14 @@ import { PlayerAvatar } from './PlayerAvatar';
 interface PassAndPlayTransitionProps {
   player: Player;
   onConfirm: () => void;
+  useFloorTerminology?: boolean;
 }
 
-export const PassAndPlayTransition: React.FC<PassAndPlayTransitionProps> = ({ player, onConfirm }) => {
+export const PassAndPlayTransition: React.FC<PassAndPlayTransitionProps> = ({
+  player,
+  onConfirm,
+  useFloorTerminology = false,
+}) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-app-overlay p-4">
       <div className="w-full max-w-md panel p-8 text-center space-y-6 shadow-xl">
@@ -27,7 +32,7 @@ export const PassAndPlayTransition: React.FC<PassAndPlayTransitionProps> = ({ pl
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface border border-default rounded-full text-muted text-xs">
             <Layers className="w-3.5 h-3.5 text-accent" />
             <span>
-              Fase atual: <strong className="text-secondary">{player.phase}</strong>
+              {useFloorTerminology ? 'Desafio atual' : 'Fase atual'}: <strong className="text-secondary">{player.phase}</strong>
             </span>
           </div>
 

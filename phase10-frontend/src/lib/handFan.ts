@@ -57,6 +57,8 @@ export function sortHandCards<T extends SortableCard>(cards: T[], mode: HandSort
       if (b.type === 'wild' && a.type !== 'wild') return -1;
       if (a.type === 'skip' && b.type !== 'skip') return 1;
       if (b.type === 'skip' && a.type !== 'skip') return -1;
+      if (a.type === 'power' && b.type !== 'power') return 1;
+      if (b.type === 'power' && a.type !== 'power') return -1;
       return a.value - b.value;
     });
   } else {

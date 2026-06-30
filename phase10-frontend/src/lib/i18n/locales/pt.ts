@@ -41,7 +41,7 @@ export const pt: Translations = {
     tabTruco: 'Truco',
     tabPoker: 'Poker',
     tabTower: 'Mestre da Torre',
-    towerComingSoon: 'Este modo ainda está em desenvolvimento. As regras abaixo são uma prévia do jogo planejado.',
+    towerComingSoon: 'MVP jogável: usa a base de fases atual com suporte para 2 a 10 jogadores. Poderes, energia e personagens serão adicionados no próximo balanceamento.',
     phase10: {
       tabHow: 'Como jogar',
       tabPhases: 'As 10 fases',
@@ -156,16 +156,17 @@ export const pt: Translations = {
     ],
     tower: [
       {
-        title: 'Conceito',
+        title: 'Objetivo',
         paragraphs: [
-          'Mestre da Torre será um jogo de construção estratégica com cartas.',
-          'Os jogadores empilharão cartas para formar torres, equilibrando risco e recompensa.',
+          'Seja o primeiro jogador a completar todos os andares da torre.',
+          'Nesta primeira versão jogável, cada andar usa combinações parecidas com Fase 10, preparada para partidas de 2 a 10 jogadores.',
         ],
       },
       {
-        title: 'Status',
+        title: 'Combate e poderes',
         paragraphs: [
-          'Modo em desenvolvimento — em breve no Mestre da Cartas.',
+          'O modo completo terá cartas de poder, energia, reações, personagens e raridades.',
+          'O MVP já separa o modo no lobby e na partida para receber essas regras sem misturar com o Fase 10 clássico.',
         ],
       },
     ],
@@ -192,13 +193,14 @@ export const pt: Translations = {
     gamePoker: 'Poker',
     gamePokerDesc: 'Texas Hold\'em — blefe, apostas e melhor mão vence.',
     gameTower: 'Mestre da Torre',
-    gameTowerDesc: 'Construa sua torre carta a carta e vença os rivais.',
+    gameTowerDesc: 'Suba os andares em uma disputa de 2 a 10 jogadores.',
     inDevelopment: 'Em Desenvolvimento',
     gameInDevelopment: 'Este modo de jogo ainda está em desenvolvimento.',
     onlinePhase10Only: 'Multijogador online disponível apenas para Fase 10.',
     minPlayersPhase10: 'O Fase 10 precisa de pelo menos 3 jogadores.',
     minPlayersTruco: 'O Truco precisa de exatamente 4 jogadores.',
     minPlayersPoker: 'O Poker precisa de pelo menos 2 jogadores.',
+    minPlayersTower: 'O Mestre da Torre precisa de pelo menos 2 jogadores.',
   },
   legal: {
     close: 'Fechar',

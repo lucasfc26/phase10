@@ -106,6 +106,7 @@ export type Translations = {
     minPlayersPhase10: string;
     minPlayersTruco: string;
     minPlayersPoker: string;
+    minPlayersTower: string;
   };
   legal: {
     close: string;

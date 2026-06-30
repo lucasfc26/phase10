@@ -41,7 +41,7 @@ export const en: Translations = {
     tabTruco: 'Truco',
     tabPoker: 'Poker',
     tabTower: 'Tower Master',
-    towerComingSoon: 'This mode is still in development. The rules below are a preview of the planned game.',
+    towerComingSoon: 'Playable MVP: uses the current phase engine with support for 2 to 10 players. Powers, energy and characters will be added in the balancing pass.',
     phase10: {
       tabHow: 'How to play',
       tabPhases: 'The 10 phases',
@@ -155,15 +155,18 @@ export const en: Translations = {
     ],
     tower: [
       {
-        title: 'Concept',
+        title: 'Objective',
         paragraphs: [
-          'Tower Master will be a strategic card-stacking game.',
-          'Players build towers card by card, balancing risk and reward.',
+          'Be the first player to complete every tower floor.',
+          'This first playable version uses phase-style floor requirements and is ready for 2 to 10 players.',
         ],
       },
       {
-        title: 'Status',
-        paragraphs: ['Mode in development — coming soon to Mestre da Cartas.'],
+        title: 'Combat and powers',
+        paragraphs: [
+          'The full mode will include power cards, energy, reactions, characters and rarities.',
+          'The MVP already separates the mode in the lobby and match state so those rules can be added without mixing with classic Phase 10.',
+        ],
       },
     ],
     close: 'Close',
@@ -189,13 +192,14 @@ export const en: Translations = {
     gamePoker: 'Poker',
     gamePokerDesc: 'Texas Hold\'em — bluff, bet and best hand wins.',
     gameTower: 'Tower Master',
-    gameTowerDesc: 'Build your tower card by card and beat your rivals.',
+    gameTowerDesc: 'Climb floors in a 2 to 10 player duel.',
     inDevelopment: 'In Development',
     gameInDevelopment: 'This game mode is still in development.',
     onlinePhase10Only: 'Online multiplayer is only available for Phase 10.',
     minPlayersPhase10: 'Phase 10 requires at least 3 players.',
     minPlayersTruco: 'Truco requires exactly 4 players.',
     minPlayersPoker: 'Poker requires at least 2 players.',
+    minPlayersTower: 'Tower Master requires at least 2 players.',
   },
   legal: {
     close: 'Close',

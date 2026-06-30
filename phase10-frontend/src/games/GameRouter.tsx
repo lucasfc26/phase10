@@ -9,6 +9,7 @@ import type { RoomSession } from '../services/onlineApi';
 
 export type ActiveGameState =
   | { cardGame: 'phase10'; room: GameRoom; session?: RoomSession | null }
+  | { cardGame: 'tower_master'; room: GameRoom; session?: RoomSession | null }
   | { cardGame: 'truco'; room: TrucoRoom }
   | { cardGame: 'poker'; room: PokerRoom };
 

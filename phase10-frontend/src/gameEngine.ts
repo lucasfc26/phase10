@@ -1,4 +1,5 @@
 import { Card, CardColor, PhaseType, Player, LaidDownPhase, STANDARD_PHASES } from './types';
+import { createTowerPowerCard, TOWER_POWER_CARDS } from './games/towerMaster/cards';
 
 // Helper to generate a unique ID
 export const generateId = () => Math.random().toString(36).substring(2, 11);
@@ -47,6 +48,18 @@ export function generateDeck(): Card[] {
       color: 'skip'
     });
   }
+
+  return deck;
+}
+
+export function generateTowerMasterDeck(): Card[] {
+  const deck = generateDeck();
+
+  TOWER_POWER_CARDS.forEach((definition) => {
+    for (let copyIndex = 1; copyIndex <= definition.copies; copyIndex++) {
+      deck.push(createTowerPowerCard(definition, copyIndex, generateId()));
+    }
+  });
 
   return deck;
 }
@@ -106,6 +119,7 @@ export function ensureActivePlayerNotSkipped(
 // Calculate the points remaining in a hand
 export function calculateHandScore(cards: Card[]): number {
   return cards.reduce((total, card) => {
+    if (card.type === 'power') return total + 20;
     if (card.type === 'wild') return total + 25;
     if (card.type === 'skip') return total + 15;
     if (card.value >= 10) return total + 10;
@@ -116,7 +130,7 @@ export function calculateHandScore(cards: Card[]): number {
 // Check if a group of cards is a valid SET (all same value, or wild)
 export function isValidSet(cards: Card[]): boolean {
   if (cards.length === 0) return false;
-  if (cards.some(c => c.type === 'skip')) return false;
+  if (cards.some(c => c.type === 'skip' || c.type === 'power')) return false;
   
   const nonWilds = cards.filter(c => c.type !== 'wild');
   if (nonWilds.length === 0) {
@@ -133,7 +147,7 @@ export function isValidSet(cards: Card[]): boolean {
 // Check if a group of cards is a valid RUN (consecutive numbers, colors don't matter)
 export function isValidRun(cards: Card[]): boolean {
   if (cards.length === 0) return false;
-  if (cards.some(c => c.type === 'skip')) return false;
+  if (cards.some(c => c.type === 'skip' || c.type === 'power')) return false;
 
   const nonWilds = cards.filter(c => c.type !== 'wild');
   if (nonWilds.length === 0) return cards.length >= 2; // All wilds is theoretically consecutive but needs length
@@ -161,7 +175,7 @@ export function isValidRun(cards: Card[]): boolean {
 // Check if a group of cards is a valid COLOR SET (all same color, wild can match any)
 export function isValidColorSet(cards: Card[]): boolean {
   if (cards.length === 0) return false;
-  if (cards.some(c => c.type === 'skip')) return false;
+  if (cards.some(c => c.type === 'skip' || c.type === 'power')) return false;
 
   const nonWilds = cards.filter(c => c.type !== 'wild');
   if (nonWilds.length === 0) return true; // All wilds count as any color
@@ -324,7 +338,7 @@ export function identifyGroupTypes(phaseType: PhaseType, groups: Card[][]): stri
 
 // Verify if a single card can be added (hit) to an existing laid-down group of cards on the table
 export function isValidHit(card: Card, targetGroup: Card[], groupCategory: string): boolean {
-  if (card.type === 'skip') return false; // Skip cards cannot be used on the table
+  if (card.type === 'skip' || card.type === 'power') return false; // Special cards cannot be used on the table
   
   // Wild cards can always hit any active group!
   if (card.type === 'wild') return true;
@@ -372,8 +386,8 @@ export function botTryToFormPhase(player: Player): Card[][] | null {
   const hand = [...player.cards];
   const type = phaseDef.type;
 
-  // Let's filter out skips
-  const usableCards = hand.filter(c => c.type !== 'skip');
+  // Let's filter out special cards that cannot form phases
+  const usableCards = hand.filter(c => c.type !== 'skip' && c.type !== 'power');
   const wildCards = usableCards.filter(c => c.type === 'wild');
   const numberCards = usableCards.filter(c => c.type === 'number');
 

@@ -1,12 +1,28 @@
 import type { CardGameId } from './games/types';
 
-export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild' | 'skip';
+export type TowerCardCategory = 'attack' | 'defense' | 'manipulation' | 'chaos' | 'epic' | 'legendary';
+export type TowerCardRarity = 'uncommon' | 'rare' | 'epic' | 'legendary';
+
+export type CardColor =
+  | 'red'
+  | 'yellow'
+  | 'green'
+  | 'blue'
+  | 'wild'
+  | 'skip'
+  | TowerCardCategory;
 
 export interface Card {
   id: string;
-  type: 'number' | 'wild' | 'skip';
+  type: 'number' | 'wild' | 'skip' | 'power';
   value: number; // 1 to 12, or 0 for skip/wild
   color: CardColor;
+  powerId?: string;
+  powerName?: string;
+  powerCategory?: TowerCardCategory;
+  powerCost?: number;
+  rarity?: TowerCardRarity;
+  imageSrc?: string;
 }
 
 export type PhaseType =
@@ -40,6 +56,14 @@ export interface Player {
   score: number;
   isSkipped: boolean;     // If player is skipped on their next turn
   color?: string;         // Theme color
+  energy?: number;
+  towerShield?: boolean;
+  towerReflectNext?: boolean;
+  towerArmorTurns?: number;
+  towerCannotLayDown?: boolean;
+  towerExtraTurn?: boolean;
+  towerLegendaryId?: string;
+  towerLegendaryUsedThisRound?: boolean;
 }
 
 export interface GameLog {
