@@ -70,14 +70,25 @@ export function emitRoomLeave() {
 }
 
 export function emitGameStart(onResult?: (result: { ok?: boolean; error?: string }) => void) {
-  socket?.emit('game:start', {}, onResult);
+  if (!socket?.connected) {
+    onResult?.({ error: 'Sem conexão com o servidor. Aguarde a conexão e tente novamente.' });
+    return;
+  }
+  socket.emit('game:start', {}, onResult);
 }
 
-export function emitAddBot(onResult?: (result: { ok?: boolean; error?: string }) => void) {
-  socket?.emit('lobby:add_bot', {}, onResult);
+export function emitLobbyAddBot(onResult?: (result: { ok?: boolean; error?: string }) => void) {
+  if (!socket?.connected) {
+    onResult?.({ error: 'Sem conexão com o servidor. Aguarde a conexão e tente novamente.' });
+    return;
+  }
+  socket.emit('lobby:add_bot', {}, onResult);
 }
 
-export function emitRemoveBot(botMemberId: string, onResult?: (result: { ok?: boolean; error?: string }) => void) {
+export function emitLobbyRemoveBot(
+  botMemberId: string,
+  onResult?: (result: { ok?: boolean; error?: string }) => void,
+) {
   socket?.emit('lobby:remove_bot', { botMemberId }, onResult);
 }
 

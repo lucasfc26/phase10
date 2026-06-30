@@ -2,8 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, Book, Send, MessageSquare, ListTodo, 
   Check, ArrowRight, CornerRightDown,
-  Sparkles, Award, User, AlertCircle, Volume2, VolumeX
+  Award, AlertCircle, Volume2, VolumeX, Ban, Trash2, Wand2, Layers, Hand, User
 } from 'lucide-react';
+import { PlayerAvatar } from './PlayerAvatar';
+import { avatarDisplayText } from '../lib/characterAvatar';
+import { getHandFanLayout, getHandFanSpreadWidth, sortHandCards, type HandSortMode } from '../lib/handFan';
+import { cardPipClass } from '../lib/cards';
 import { 
   Card, Player, GameRoom, LaidDownPhase, GameLog, ChatMessage, STANDARD_PHASES 
 } from '../types';
@@ -59,6 +63,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
   const clearCardSelection = () => setSelectedCards([]);
 
+  const [handSortMode, setHandSortMode] = useState<HandSortMode | null>(null);
+
   // Skip selector target modal
   const [skipCardPending, setSkipCardPending] = useState<Card | null>(null);
   const [showSkipSelector, setShowSkipSelector] = useState<boolean>(false);
@@ -68,7 +74,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const [autoStartCountdown, setAutoStartCountdown] = useState<number | null>(null);
   const roundEndHandledRef = useRef(false);
   const pendingActionRef = useRef(false);
-  const lastStateVersionRef = useRef(0);
+  const lastStateVersionRef = useRef(initialRoom.stateVersion ?? 0);
   const [isActionPending, setIsActionPending] = useState(false);
 
   // Sound generator
@@ -216,12 +222,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     emitGameAction(
       { ...action, expectedStateVersion: lastStateVersionRef.current },
       (result) => {
-        pendingActionRef.current = false;
-        setIsActionPending(false);
-        if (!handleOnlineActionResult(result)) return;
-        onSuccess?.();
-      },
-    );
+      pendingActionRef.current = false;
+      setIsActionPending(false);
+      if (!handleOnlineActionResult(result)) return;
+      onSuccess?.();
+    });
     return true;
   };
 
@@ -275,7 +280,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
     // Announce current phases
     updatedPlayers.forEach(p => {
-      addLog(`${p.avatar} ${p.name} está buscando a Fase ${p.phase}.`, 'info');
+      addLog(`${avatarDisplayText(p.avatar)} ${p.name} está buscando a Fase ${p.phase}.`, 'info');
     });
 
     // Setup first turn
@@ -300,6 +305,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // Initialize local game or connect online
   useEffect(() => {
     if (isOnline && onlineSession) {
+      applyOnlineGameState(initialRoom);
       connectOnlineSocket(onlineSession.sessionToken, {
         onGameState: (state) => applyOnlineGameState(state),
         onGameLog: (log) => {
@@ -315,7 +321,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
     roundEndHandledRef.current = false;
     startNewRound(initialRoom);
-    addChatMessage('Sistema', '🤖', '#64748b', 'Bem-vindo ao Phase 10! Sala criada com sucesso.', true);
+    addChatMessage('Sistema', 'system', '#78716c', 'Bem-vindo ao Phase 10. Boa partida!', true);
   }, []);
 
   // ----------------------------------------------------
@@ -347,7 +353,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       setIsBuildingPhase(false);
       setBuildGroup1([]);
       setBuildGroup2([]);
-      setSelectedCards([]);
+      clearCardSelection();
       setTurnState('idle');
     }
   }, [isOnline, onlineSession?.memberId, room.currentTurnIndex, room.status, room.players, room.hasDrawnThisTurn]);
@@ -366,43 +372,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     return validatePhase(phaseDef.type, groups);
   };
 
-  // Auto-sort hand
-  const sortHand = (mode: 'value' | 'color') => {
+  const sortHand = (mode: HandSortMode) => {
     playSound('click');
-    setRoom(prev => {
-      const updatedPlayers = [...prev.players];
-      const playerIndex = isOnline
-        ? updatedPlayers.findIndex((p) => p.id === onlineSession?.memberId)
-        : prev.currentTurnIndex;
-      if (playerIndex < 0) return prev;
-      const playerHand = [...updatedPlayers[playerIndex].cards];
-
-      if (mode === 'value') {
-        playerHand.sort((a, b) => {
-          // Sort wild cards to the end
-          if (a.type === 'wild' && b.type !== 'wild') return 1;
-          if (b.type === 'wild' && a.type !== 'wild') return -1;
-          if (a.type === 'skip' && b.type !== 'skip') return 1;
-          if (b.type === 'skip' && a.type !== 'skip') return -1;
-          return a.value - b.value;
-        });
-      } else {
-        playerHand.sort((a, b) => {
-          if (a.color === b.color) return a.value - b.value;
-          return a.color.localeCompare(b.color);
-        });
-      }
-
-      updatedPlayers[playerIndex] = {
-        ...updatedPlayers[playerIndex],
-        cards: playerHand
-      };
-
-      return {
-        ...prev,
-        players: updatedPlayers
-      };
-    });
+    setHandSortMode(mode);
   };
 
   // ----------------------------------------------------
@@ -441,10 +413,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
           drawPile.push(...newDraw);
         }
         drawnCard = drawPile.pop();
-        addLog(`${activePlayer.avatar} ${activePlayer.name} comprou do monte.`, 'action');
+        addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} comprou do monte.`, 'action');
       } else {
         drawnCard = discardPile.pop();
-        addLog(`${activePlayer.avatar} ${activePlayer.name} comprou o descarte (${drawnCard?.type === 'wild' ? 'Curinga' : drawnCard?.type === 'skip' ? 'Skip' : drawnCard?.value + ' ' + drawnCard?.color}).`, 'action');
+        addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} comprou o descarte (${drawnCard?.type === 'wild' ? 'Curinga' : drawnCard?.type === 'skip' ? 'Skip' : drawnCard?.value + ' ' + drawnCard?.color}).`, 'action');
       }
 
       if (drawnCard) {
@@ -465,7 +437,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     });
 
     setTurnState('playing');
-    setSelectedCards([]);
+    clearCardSelection();
   };
 
   // Discard card to end turn
@@ -495,7 +467,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         setIsBuildingPhase(false);
         setBuildGroup1([]);
         setBuildGroup2([]);
-        setSelectedCards([]);
+        clearCardSelection();
         setSkipCardPending(null);
         setShowSkipSelector(false);
         setTurnState('idle');
@@ -509,7 +481,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     setIsBuildingPhase(false);
     setBuildGroup1([]);
     setBuildGroup2([]);
-    setSelectedCards([]);
+    clearCardSelection();
 
     let roundEndResult: ReturnType<typeof evaluateRoundEnd> = null;
 
@@ -544,7 +516,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
       const advanced = advanceToNextPlayer(updatedPlayers, prev.currentTurnIndex);
       advanced.skippedPlayers.forEach((skipped) => {
-        addLog(`🚫 ${skipped.avatar} ${skipped.name} foi pulado!`, 'warning');
+        addLog(`${avatarDisplayText(skipped.avatar)} ${skipped.name} foi pulado.`, 'warning');
       });
 
       return {
@@ -557,11 +529,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
     if (skipPlayerId) {
       const skippedUser = room.players.find(p => p.id === skipPlayerId);
-      addLog(`${activePlayer.avatar} ${activePlayer.name} descartou Skip e pulou ${skippedUser?.avatar} ${skippedUser?.name}! 🚫`, 'warning');
+      addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} descartou Skip e pulou ${avatarDisplayText(skippedUser?.avatar ?? '')} ${skippedUser?.name}.`, 'warning');
       playSound('skip');
     } else {
       const cardDesc = card.type === 'wild' ? 'Curinga' : `${card.value} (${card.color})`;
-      addLog(`${activePlayer.avatar} ${activePlayer.name} descartou ${cardDesc}.`, 'action');
+      addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} descartou ${cardDesc}.`, 'action');
     }
 
     if (skipCardPending) {
@@ -625,7 +597,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // ----------------------------------------------------
   const handleToggleBuilder = () => {
     playSound('click');
-    setIsBuildingPhase((prev) => {
+    setIsBuildingPhase(prev => {
       if (prev) {
         setBuildGroup1([]);
         setBuildGroup2([]);
@@ -696,55 +668,50 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       return;
     }
 
-    const layDownPlayer = isOnline ? myPlayer : activePlayer;
-    const group1Ids = buildGroup1.map((c) => c.id);
-    const group2Ids = buildGroup2.map((c) => c.id);
+    playSound('laydown');
 
     if (isOnline) {
-      sendOnlineAction(
-        {
-          type: 'lay_down',
-          group1CardIds: group1Ids,
-          group2CardIds: group2Ids,
-        },
-        () => {
-          playSound('laydown');
-          setIsBuildingPhase(false);
-          setBuildGroup1([]);
-          setBuildGroup2([]);
-          clearCardSelection();
-        },
-      );
+      sendOnlineAction({
+        type: 'lay_down',
+        group1CardIds: buildGroup1.map((c) => c.id),
+        group2CardIds: buildGroup2.map((c) => c.id),
+      }, () => {
+        setIsBuildingPhase(false);
+        setBuildGroup1([]);
+        setBuildGroup2([]);
+        clearCardSelection();
+      });
       return;
     }
 
-    playSound('laydown');
-
-    const groups = [buildGroup1, buildGroup2].filter((g) => g.length > 0);
+    const groups = [buildGroup1, buildGroup2].filter(g => g.length > 0);
 
     let playersAfterLayDown: Player[] = [];
     let laidDownAfterLayDown: LaidDownPhase[] = [];
 
-    setRoom((prev) => {
-      const playerIdx = prev.players.findIndex((p) => p.id === layDownPlayer.id);
-      if (playerIdx < 0) return prev;
-
-      const allUsedIds = [...group1Ids, ...group2Ids];
+    setRoom(prev => {
+      // 1. Mark player as laid down
       const updatedPlayers = prev.players.map((p, idx) => {
-        if (idx !== playerIdx) return p;
-        return {
-          ...p,
-          cards: p.cards.filter((c) => !allUsedIds.includes(c.id)),
-          hasLaidDownThisRound: true,
-        };
+        if (idx === prev.currentTurnIndex) {
+          // Remove used cards from hand
+          const allUsedIds = [...buildGroup1, ...buildGroup2].map(c => c.id);
+          const remainingHand = p.cards.filter(c => !allUsedIds.includes(c.id));
+          return {
+            ...p,
+            cards: remainingHand,
+            hasLaidDownThisRound: true
+          };
+        }
+        return p;
       });
 
+      // 2. Add to table laidDownPhases list
       const newLaidDown: LaidDownPhase = {
-        playerId: layDownPlayer.id,
-        playerName: layDownPlayer.name,
-        playerColor: layDownPlayer.color || '#a855f7',
-        phaseId: layDownPlayer.phase,
-        groups,
+        playerId: activePlayer.id,
+        playerName: activePlayer.name,
+        playerColor: activePlayer.color || '#a855f7',
+        phaseId: activePlayer.phase,
+        groups
       };
 
       const newLaidDownPhases = [...prev.laidDownPhases, newLaidDown];
@@ -754,28 +721,30 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       return {
         ...prev,
         players: updatedPlayers,
-        laidDownPhases: newLaidDownPhases,
+        laidDownPhases: newLaidDownPhases
       };
     });
 
-    addLog(`✨ ${layDownPlayer.avatar} ${layDownPlayer.name} BAIXOU A FASE ${layDownPlayer.phase}! ✨`, 'success');
+    addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} baixou a fase ${activePlayer.phase}.`, 'success');
 
     const endResult = evaluateRoundEnd(playersAfterLayDown, laidDownAfterLayDown, {
       drawPile: room.drawPile,
-      discardPile: room.discardPile,
+      discardPile: room.discardPile
     });
     if (endResult) {
       handleRoundEnd(endResult.winner, endResult.allAdvance);
       return;
     }
 
+    // Reset Builder
     setIsBuildingPhase(false);
     setBuildGroup1([]);
     setBuildGroup2([]);
     clearCardSelection();
 
+    // Bot banter
     if (room.settings.gameMode === 'bots') {
-      triggerBotChatReaction('baixou');
+      triggerBotChatReaction("baixou");
     }
   };
 
@@ -784,7 +753,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // ----------------------------------------------------
   const handleHitCard = (targetPlayerId: string, groupIndex: number) => {
     if (!isMyTurn || turnState !== 'playing' || !selectedHitCard) return;
-    if (!myPlayer.hasLaidDownThisRound) {
+    if (!activePlayer.hasLaidDownThisRound) {
       alert("Você precisa baixar a sua própria fase antes de poder bater nas fases dos adversários!");
       return;
     }
@@ -794,11 +763,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     if (!layout) return;
 
     const group = layout.groups[groupIndex];
-    if (!group) {
-      alert('Grupo alvo não encontrado.');
-      return;
-    }
-
     const phaseDef = STANDARD_PHASES.find(p => p.id === layout.phaseId);
     if (!phaseDef) return;
 
@@ -811,24 +775,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       return;
     }
 
+    // Apply hit!
+    playSound('draw');
+
     if (isOnline) {
-      sendOnlineAction(
-        {
-          type: 'hit',
-          cardId: selectedHitCard.id,
-          targetPlayerId,
-          groupIndex,
-        },
-        () => {
-          playSound('draw');
-          clearCardSelection();
-        },
-      );
+      sendOnlineAction({
+        type: 'hit',
+        cardId: selectedHitCard.id,
+        targetPlayerId,
+        groupIndex,
+      }, () => {
+        clearCardSelection();
+      });
       return;
     }
-
-    // Apply hit! (local)
-    playSound('draw');
 
     let playersAfterHit: Player[] = [];
     let laidDownAfterHit: LaidDownPhase[] = [];
@@ -868,8 +828,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     });
 
     const cardDesc = selectedHitCard.type === 'wild' ? 'Curinga' : `${selectedHitCard.value} (${selectedHitCard.color})`;
-    addLog(`${activePlayer.avatar} ${activePlayer.name} bateu com ${cardDesc} na fase de ${layout.playerName}!`, 'success');
-    setSelectedCards([]);
+    addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} bateu com ${cardDesc} na fase de ${layout.playerName}!`, 'success');
+    clearCardSelection();
 
     const endResult = evaluateRoundEnd(playersAfterHit, laidDownAfterHit, {
       drawPile: room.drawPile,
@@ -884,7 +844,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   // ROUND END & SCORING CALCULATIONS
   // ----------------------------------------------------
   const handleRoundEnd = (roundWinner: Player | null, allAdvance: boolean) => {
-    if (isOnline) return;
     if (roundEndHandledRef.current) return;
     roundEndHandledRef.current = true;
 
@@ -895,7 +854,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       addLog('🎉 TODOS BAIARAM SUAS FASES! A RODADA FOI ENCERRADA! 🎉', 'success');
     } else if (roundWinner) {
       setRoundEndReason('go_out');
-      addLog(`🎉 ${roundWinner.avatar} ${roundWinner.name} BATEU E FECHOU A RODADA! 🎉`, 'success');
+      addLog(`🎉 ${avatarDisplayText(roundWinner.avatar)} ${roundWinner.name} BATEU E FECHOU A RODADA! 🎉`, 'success');
 
       // Trigger Chat reaction
       if (room.settings.gameMode === 'bots') {
@@ -1058,7 +1017,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
     setLogs([]);
     setChatMessages([]);
-    addChatMessage('Sistema', '🤖', '#64748b', 'O jogo foi reiniciado. Boa sorte a todos!', true);
+    addChatMessage('Sistema', 'system', '#78716c', 'O jogo foi reiniciado.', true);
     startNewRound(freshRoom);
   };
 
@@ -1097,7 +1056,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
       if (shouldDrawDiscard && topDiscard) {
         drawn = discardPile.pop();
-        addLog(`🤖 ${bot.avatar} ${bot.name} comprou o descarte (${drawn?.type === 'wild' ? 'Curinga' : drawn?.value + ' ' + drawn?.color}).`, 'action');
+        addLog(`${bot.name} comprou o descarte.`, 'action');
       } else {
         if (drawPile.length === 0) {
           // Recycle
@@ -1108,7 +1067,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
           drawPile.push(...newDraw);
         }
         drawn = drawPile.pop();
-        addLog(`🤖 ${bot.avatar} ${bot.name} comprou do monte.`, 'action');
+        addLog(`${bot.name} comprou do monte.`, 'action');
       }
 
       if (drawn) {
@@ -1144,7 +1103,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         if (botGroups) {
           didLayDown = true;
           playSound('laydown');
-          addLog(`✨ 🤖 ${bot.avatar} ${bot.name} BAIXOU A FASE ${bot.phase}! ✨`, 'success');
+          addLog(`${bot.name} baixou a fase ${bot.phase}.`, 'success');
 
           // Trigger chat reaction
           if (Math.random() < 0.3) {
@@ -1203,7 +1162,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
               activeBot.cards = activeBot.cards.filter(c => c.id !== hit.cardId);
               
               const targetPlName = prev.players.find(p => p.id === hit.targetPlayerId)?.name || 'mesa';
-              addLog(`🤖 ${activeBot.avatar} ${activeBot.name} bateu com ${cardToPlay.type === 'wild' ? 'Curinga' : cardToPlay.value} em ${targetPlName}!`, 'success');
+              addLog(`${activeBot.name} bateu em ${targetPlName}.`, 'success');
             }
           });
         }
@@ -1321,7 +1280,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       if (bots.length > 0 && Math.random() < 0.6) {
         const responder = bots[Math.floor(Math.random() * bots.length)];
         setTimeout(() => {
-          addChatMessage(responder.name, responder.avatar, responder.color || '#94a3b8', "Ahaha, é bem isso! 👍");
+          addChatMessage(responder.name, responder.avatar, responder.color || '#94a3b8', 'Verdade!');
         }, 1000);
       }
     }
@@ -1331,54 +1290,47 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
     <div className="w-full max-w-7xl mx-auto px-2 md:px-4 py-4 select-none">
       
       {/* 1. Header Toolbar */}
-      <header className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-6 flex flex-wrap gap-4 items-center justify-between shadow-xl">
-        <div className="flex items-center space-x-3">
-          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-1.5 rounded-xl text-center text-white font-black text-sm uppercase tracking-wider">
+      <header className="panel p-4 mb-5 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-accent-soft/40 border border-accent px-3 py-1.5 rounded-lg text-accent font-semibold text-sm">
             Rodada {room.roundNumber}
           </div>
-          <div className="text-slate-400 text-xs font-semibold">
-            Código Sala: <span className="text-indigo-400 font-mono tracking-widest uppercase font-bold">{room.code}</span>
+          <div className="text-muted text-xs">
+            Sala <span className="text-secondary font-mono tracking-wide">{room.code}</span>
           </div>
         </div>
 
-        {/* Current Phase Targets Info */}
-        <div className="hidden lg:flex items-center space-x-3 text-xs bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-850">
-          <span className="text-slate-500 font-bold uppercase tracking-wider">Fases Atuais:</span>
+        <div className="hidden lg:flex items-center gap-3 text-xs bg-app px-3 py-1.5 rounded-lg border border-default">
+          <span className="text-muted font-medium">Fases:</span>
           <div className="flex gap-2">
             {room.players.map(p => (
-              <div key={p.id} className="flex items-center space-x-1 border-r border-slate-800 pr-2 last:border-0">
-                <span className="text-sm">{p.avatar}</span>
-                <span className="text-[10px] text-slate-400 font-semibold truncate max-w-[60px]">{p.name}</span>
-                <span className="text-xs font-black text-amber-400">F{p.phase}</span>
+              <div key={p.id} className="flex items-center gap-1 border-r border-default pr-2 last:border-0">
+                <PlayerAvatar avatar={p.avatar} color={p.color} size={22} isBot={p.isBot} />
+                <span className="text-[10px] text-muted truncate max-w-[60px]">{p.name}</span>
+                <span className="text-xs font-semibold text-accent">F{p.phase}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center space-x-2">
-          {/* Audio Switcher */}
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-100 transition-colors"
-            title={soundEnabled ? "Mutar Efeitos" : "Ativar Efeitos"}
+            className="p-2 hover:bg-surface-raised rounded-lg text-muted hover:text-secondary"
+            title={soundEnabled ? 'Mutar' : 'Ativar som'}
           >
-            {soundEnabled ? <Volume2 className="w-5 h-5 text-purple-400" /> : <VolumeX className="w-5 h-5 text-slate-600" />}
+            {soundEnabled ? <Volume2 className="w-5 h-5 text-accent" /> : <VolumeX className="w-5 h-5" />}
           </button>
-
-          {/* Rules Trigger */}
           <button
             onClick={() => { playSound('click'); setIsRulesOpen(true); }}
-            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 rounded-xl text-xs font-bold text-slate-200 hover:text-white transition-colors flex items-center space-x-1.5 border border-slate-700/60"
+            className="px-3 py-1.5 bg-surface-raised hover:bg-surface-muted rounded-lg text-xs font-medium text-secondary flex items-center gap-1.5 border border-default"
           >
-            <Book className="w-4 h-4 text-purple-400" />
-            <span>Ver Regras</span>
+            <Book className="w-4 h-4 text-accent" />
+            <span>Regras</span>
           </button>
-
-          {/* Sair */}
           <button
-            onClick={() => { if (confirm("Tem certeza que deseja sair?")) onExit(); }}
-            className="px-3.5 py-1.5 bg-rose-950/40 hover:bg-rose-900/40 active:bg-rose-950 border border-rose-900/60 rounded-xl text-xs font-bold text-rose-300 hover:text-rose-200 transition-colors"
+            onClick={() => { if (confirm('Sair da partida?')) onExit(); }}
+            className="px-3 py-1.5 bg-surface hover:bg-danger-muted border border-default hover:border-danger rounded-lg text-xs font-medium text-danger"
           >
             Sair
           </button>
@@ -1392,30 +1344,27 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         <div className="lg:col-span-8 space-y-6">
           
           {/* Discard & Draw Deck Center Pile */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-950/15 via-transparent to-transparent pointer-events-none" />
-            
+          <div className="panel-felt p-6 relative overflow-hidden">
             <div className="relative flex flex-col md:flex-row items-center justify-around gap-6">
               
               {/* Draw Pile Stack */}
               <div className="flex flex-col items-center space-y-2">
-                <span className="text-xs uppercase font-extrabold tracking-wider text-slate-400">Monte de Compra</span>
+                <span className="text-xs uppercase font-medium tracking-wide text-emerald-200/70">Compra</span>
                 
                 <button
                   onClick={() => handleDrawCard('draw')}
                   disabled={!isMyTurn || turnState !== 'drawing' || isActionPending}
-                  className={`w-28 h-40 rounded-2xl border-4 transition-all relative flex flex-col items-center justify-center shadow-lg ${
+                  className={`w-28 h-40 rounded-lg border-2 transition-all relative flex flex-col items-center justify-center bg-stone-100 shadow-md ${
                     isMyTurn && turnState === 'drawing' && !isActionPending
-                      ? 'border-purple-500 bg-slate-950 hover:scale-105 active:scale-95 cursor-pointer shadow-purple-900/20'
-                      : 'border-slate-800 bg-slate-950 cursor-not-allowed opacity-80'
+                      ? 'border-accent hover:scale-[1.02] cursor-pointer'
+                      : 'border-stone-400 cursor-not-allowed opacity-70'
                   }`}
                 >
-                  <div className="absolute inset-2 border border-purple-500/10 rounded-lg flex flex-col items-center justify-center">
-                    <div className="text-3xl font-black bg-gradient-to-r from-purple-500 to-indigo-500 bg-clip-text text-transparent mb-1 font-mono">P10</div>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Comprar</span>
+                  <div className="flex flex-col items-center justify-center text-stone-800">
+                    <span className="text-2xl font-bold font-serif text-accent mb-1">P10</span>
+                    <span className="text-[10px] font-medium uppercase text-muted">Comprar</span>
                   </div>
-                  {/* Cards remaining badge */}
-                  <span className="absolute bottom-2 bg-slate-800 text-slate-300 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-700">
+                  <span className="absolute bottom-2 bg-surface-raised text-secondary font-mono text-[10px] px-2 py-0.5 rounded-full">
                     {room.drawPile.length} restando
                   </span>
                 </button>
@@ -1423,7 +1372,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
               {/* Discard Pile Stack */}
               <div className="flex flex-col items-center space-y-2">
-                <span className="text-xs uppercase font-extrabold tracking-wider text-slate-400">Monte de Descarte</span>
+                <span className="text-xs uppercase font-extrabold tracking-wider text-muted">Monte de Descarte</span>
                 
                 {room.discardPile.length > 0 ? (
                   (() => {
@@ -1435,96 +1384,76 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                       <button
                         onClick={() => handleDrawCard('discard')}
                         disabled={!isMyTurn || turnState !== 'drawing' || isSkip || isActionPending}
-                        className={`w-28 h-40 rounded-2xl border-4 transition-all relative flex flex-col items-center justify-between p-4 shadow-lg overflow-hidden ${
+                        className={`playing-card playing-card--discard flex flex-col justify-between text-left transition-all ${
+                          isWild ? 'playing-card--wild' : isSkip ? 'playing-card--skip' : ''
+                        } ${
                           isMyTurn && turnState === 'drawing' && !isSkip && !isActionPending
-                            ? 'border-emerald-500 hover:scale-105 active:scale-95 cursor-pointer shadow-emerald-900/20'
-                            : 'border-slate-800 cursor-not-allowed'
+                            ? 'playing-card--selected border-success hover:scale-105 active:scale-95 cursor-pointer'
+                            : 'cursor-not-allowed opacity-80'
                         }`}
-                        style={{
-                          backgroundColor: isSkip ? '#4c0519' : isWild ? '#022c22' : '#0f172a',
-                        }}
                       >
-                        {/* Suit marker colors */}
-                        <div className="flex justify-between w-full text-sm font-black font-mono">
-                          <span style={{ color: topDiscard.color === 'wild' ? '#10b981' : topDiscard.color === 'skip' ? '#f43f5e' : topDiscard.color }}>
-                            {isWild ? 'W' : isSkip ? 'S' : topDiscard.value}
-                          </span>
+                        <div className={`playing-card__pip ${cardPipClass(topDiscard.color)}`}>
+                          {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
                         </div>
 
-                        {/* Large center graphic */}
-                        <div className="text-center font-black">
+                        <div className="playing-card__center text-center flex items-center justify-center">
                           {isWild ? (
-                            <span className="text-3xl bg-gradient-to-br from-emerald-400 to-teal-400 bg-clip-text text-transparent font-sans">WILD</span>
+                            <Wand2 className="playing-card__icon-lg" />
                           ) : isSkip ? (
-                            <span className="text-3xl text-rose-500 font-sans tracking-tight">SKIP</span>
+                            <Ban className="playing-card__icon-lg" />
                           ) : (
-                            <span className="text-5xl font-mono" style={{ color: topDiscard.color }}>
+                            <span className={`playing-card__value ${cardPipClass(topDiscard.color)}`}>
                               {topDiscard.value}
                             </span>
                           )}
                         </div>
 
-                        <div className="w-full flex justify-end text-sm font-black font-mono">
-                          <span style={{ color: topDiscard.color === 'wild' ? '#10b981' : topDiscard.color === 'skip' ? '#f43f5e' : topDiscard.color }}>
-                            {isWild ? 'W' : isSkip ? 'S' : topDiscard.value}
-                          </span>
+                        <div className={`playing-card__pip rotate-180 flex justify-end ${cardPipClass(topDiscard.color)}`}>
+                          {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
                         </div>
                       </button>
                     );
                   })()
                 ) : (
-                  <div className="w-28 h-40 rounded-2xl border-4 border-dashed border-slate-800 flex items-center justify-center text-slate-600 bg-slate-950">
+                  <div className="w-28 h-40 rounded-2xl border-4 border-dashed border-default flex items-center justify-center text-muted bg-surface-muted">
                     <span className="text-xs uppercase font-bold text-center p-2">Sem descarte</span>
                   </div>
                 )}
               </div>
 
               {/* Action State Prompt Card */}
-              <div className="flex-1 max-w-sm bg-slate-950 p-4 rounded-xl border border-slate-850/80 flex flex-col justify-center space-y-2">
-                <div className="flex items-center space-x-2 text-indigo-400">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span className="text-xs uppercase font-extrabold tracking-wider">Status do Turno</span>
+              <div className="flex-1 max-w-sm bg-surface-muted/80 p-4 rounded-lg border border-default/50 flex flex-col justify-center space-y-2">
+                <div className="flex items-center gap-2 text-accent">
+                  <Hand className="w-4 h-4 shrink-0" />
+                  <span className="text-xs uppercase font-medium tracking-wide">Turno</span>
                 </div>
 
-                <div className="text-sm font-bold text-white flex items-center space-x-1.5">
-                  <span className="text-lg">{activePlayer.avatar}</span>
+                <div className="text-sm font-medium text-primary flex items-center gap-2">
+                  <PlayerAvatar avatar={activePlayer.avatar} color={activePlayer.color} size={28} isBot={activePlayer.isBot} />
                   <span style={{ color: activePlayer.color }}>{activePlayer.name}</span>
                 </div>
 
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  {turnState === 'drawing' && "👉 Compre uma carta do monte ou do descarte para iniciar."}
-                  {turnState === 'playing' && "👉 Você pode baixar sua fase, bater nas fases baixadas ou descartar uma carta para passar o turno."}
-                  {turnState === 'idle' && `Aguardando a jogada de ${activePlayer.name}...`}
+                <p className="text-xs text-muted leading-relaxed">
+                  {turnState === 'drawing' && 'Compre do monte ou do descarte.'}
+                  {turnState === 'playing' && 'Baixe sua fase, bata cartas ou descarte para passar o turno.'}
+                  {turnState === 'idle' && `Aguardando ${activePlayer.name}...`}
                 </p>
-
-                {isMyTurn && turnState === 'playing' && !myPlayer.hasLaidDownThisRound && (
-                  <button
-                    onClick={handleToggleBuilder}
-                    className={`w-full py-2 rounded-xl text-xs font-black tracking-wide border transition-all ${
-                      isBuildingPhase
-                        ? 'bg-rose-950/40 border-rose-900/60 text-rose-300'
-                        : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white shadow-md shadow-indigo-900/20'
-                    }`}
-                  >
-                    {isBuildingPhase ? "Fechar Organizador de Fase" : `Organizar Minha Fase ${activePlayer.phase}`}
-                  </button>
-                )}
               </div>
 
             </div>
           </div>
 
           {/* LAID-DOWN PHASES ON THE TABLE */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-            <h3 className="text-sm font-black uppercase tracking-wider text-slate-300 flex items-center justify-between">
+          <div className="bg-surface border border-default rounded-2xl p-5 shadow-xl space-y-4">
+            <h3 className="text-sm font-black uppercase tracking-wider text-secondary flex items-center justify-between">
               <span>Mesa: Fases Baixadas</span>
-              <span className="text-xs text-slate-500 font-normal normal-case">Clique em uma carta na sua mão e depois clique no botão "Bater" do grupo correspondente.</span>
+              <span className="text-xs text-muted font-normal normal-case">Clique em uma carta na sua mão e depois clique no botão "Bater" do grupo correspondente.</span>
             </h3>
 
             {room.laidDownPhases.length === 0 ? (
-              <div className="bg-slate-950 rounded-xl p-8 border border-dashed border-slate-800 text-center text-slate-500">
+              <div className="bg-surface-muted rounded-xl p-8 border border-dashed border-default text-center text-muted">
                 <p className="text-sm">Nenhum jogador baixou sua fase nesta rodada ainda.</p>
-                <p className="text-xs mt-1 text-slate-600">Seja o primeiro a baixar para começar a bater!</p>
+                <p className="text-xs mt-1 text-muted">Seja o primeiro a baixar para começar a bater!</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1535,17 +1464,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                   return (
                     <div 
                       key={layout.playerId} 
-                      className="bg-slate-950 border border-slate-850 rounded-xl p-4 space-y-3 shadow-inner"
+                      className="bg-surface-muted border border-default rounded-xl p-4 space-y-3 shadow-inner"
                       style={{ borderLeft: `4px solid ${layout.playerColor}` }}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <span className="text-lg">
-                            {room.players.find(p => p.id === layout.playerId)?.avatar || '👤'}
-                          </span>
-                          <span className="font-bold text-xs text-slate-200">{layout.playerName}</span>
+                          <PlayerAvatar
+                            avatar={room.players.find(pl => pl.id === layout.playerId)?.avatar ?? 'crown'}
+                            color={layout.playerColor}
+                            size={24}
+                          />
+                          <span className="font-bold text-xs text-secondary">{layout.playerName}</span>
                         </div>
-                        <span className="text-[10px] font-black bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-black bg-accent-soft/30 border border-accent/30 text-accent px-2 py-0.5 rounded-full">
                           Fase {layout.phaseId} Completa!
                         </span>
                       </div>
@@ -1553,8 +1484,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                       {/* Display Groups */}
                       <div className="space-y-3">
                         {layout.groups.map((grp, grpIdx) => (
-                          <div key={grpIdx} className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/40 space-y-2">
-                            <div className="flex justify-between items-center text-[10px] uppercase font-extrabold text-slate-500">
+                          <div key={grpIdx} className="bg-surface/60 p-2 rounded-lg border border-default/40 space-y-2">
+                            <div className="flex justify-between items-center text-[10px] uppercase font-extrabold text-muted">
                               <span>{groupNames[grpIdx] || `Grupo ${grpIdx + 1}`}</span>
                               <span>{grp.length} cartas</span>
                             </div>
@@ -1566,7 +1497,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                                 return (
                                   <div
                                     key={card.id}
-                                    className="w-8 h-12 shrink-0 rounded-md border border-slate-700/80 bg-slate-950 flex flex-col justify-between p-1 shadow-md"
+                                    className="w-8 h-12 shrink-0 rounded-md border border-default/80 bg-surface-muted flex flex-col justify-between p-1 shadow-md"
                                   >
                                     <span className="text-[9px] font-black font-mono leading-none" style={{ color: isW ? '#10b981' : card.color }}>
                                       {isW ? 'W' : card.value}
@@ -1579,10 +1510,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                               })}
 
                               {/* Hit button overlay if a card is selected */}
-                              {isMyTurn && turnState === 'playing' && selectedHitCard && myPlayer.hasLaidDownThisRound && !isBuildingPhase && (
+                              {isMyTurn && turnState === 'playing' && selectedHitCard && activePlayer.hasLaidDownThisRound && !isBuildingPhase && (
                                 <button
                                   onClick={() => handleHitCard(layout.playerId, grpIdx)}
-                                  className="w-10 h-12 bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 text-white rounded-md shrink-0 flex flex-col items-center justify-center font-bold text-[9px] cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
+                                  className="w-10 h-12 bg-emerald-600 hover:bg-emerald-500 border border-success text-white rounded-md shrink-0 flex flex-col items-center justify-center font-bold text-[9px] cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
                                 >
                                   <CornerRightDown className="w-3.5 h-3.5" />
                                   <span>BATER</span>
@@ -1605,9 +1536,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
         <div className="lg:col-span-4 space-y-6">
           
           {/* PLAYER LIST SCOREBOARD */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center space-x-1.5">
-              <Trophy className="w-4 h-4 text-amber-500" />
+          <div className="bg-surface border border-default rounded-2xl p-4 shadow-xl space-y-3">
+            <h3 className="text-xs font-black uppercase tracking-wider text-secondary flex items-center space-x-1.5">
+              <Trophy className="w-4 h-4 text-accent" />
               <span>Placar de Líderes</span>
             </h3>
 
@@ -1620,40 +1551,40 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                     key={player.id}
                     className={`flex items-center justify-between p-2.5 rounded-xl border transition-all ${
                       isActive 
-                        ? 'bg-indigo-500/10 border-indigo-500 shadow-md' 
-                        : 'bg-slate-950/60 border-slate-850 hover:bg-slate-950'
+                        ? 'bg-accent-soft/30 border-accent shadow-md' 
+                        : 'bg-surface-muted/60 border-default hover:bg-surface-muted'
                     }`}
                   >
                     <div className="flex items-center space-x-2.5 min-w-0">
-                      <span className="text-xs font-bold text-slate-500 w-4 font-mono">
+                      <span className="text-xs font-bold text-muted w-4 font-mono">
                         {idx + 1}º
                       </span>
-                      <span className="text-lg relative">
-                        {player.avatar}
+                      <span className="relative">
+                        <PlayerAvatar avatar={player.avatar} color={player.color} size={32} isBot={player.isBot} />
                         {player.isSkipped && (
-                          <span className="absolute -bottom-1 -right-1 text-[8px] bg-rose-600 border border-slate-900 rounded-full w-3.5 h-3.5 flex items-center justify-center font-extrabold text-white" title="Pulado na próxima rodada">
-                            🚫
+                          <span className="absolute -bottom-1 -right-1 bg-rose-700 border border-default rounded-full w-3.5 h-3.5 flex items-center justify-center" title="Pulado">
+                            <Ban className="w-2 h-2 text-white" />
                           </span>
                         )}
                         {player.hasLaidDownThisRound && (
-                          <span className="absolute -top-1 -right-1 text-[8px] bg-emerald-600 border border-slate-900 rounded-full w-3.5 h-3.5 flex items-center justify-center font-extrabold text-white" title="Baixou Fase!">
-                            ✓
+                          <span className="absolute -top-1 -right-1 bg-emerald-700 border border-default rounded-full w-3.5 h-3.5 flex items-center justify-center" title="Baixou fase">
+                            <Check className="w-2 h-2 text-white" />
                           </span>
                         )}
                       </span>
                       <div className="min-w-0 leading-tight">
-                        <div className="text-xs font-extrabold truncate text-slate-200" style={{ color: player.color }}>
-                          {player.name} {player.isBot && <span className="text-[9px] bg-slate-800 text-slate-400 font-normal px-1 rounded">IA</span>}
+                        <div className="text-xs font-extrabold truncate text-secondary" style={{ color: player.color }}>
+                          {player.name} {player.isBot && <span className="text-[9px] bg-surface-raised text-muted font-normal px-1 rounded">IA</span>}
                         </div>
-                        <div className="text-[10px] text-slate-500 font-semibold uppercase">
+                        <div className="text-[10px] text-muted font-semibold uppercase">
                           {player.cards.length} cartas em mãos
                         </div>
                       </div>
                     </div>
 
                     <div className="text-right shrink-0">
-                      <div className="text-xs font-black text-amber-400">FASE {player.phase}</div>
-                      <div className="text-[10px] font-semibold text-slate-400 font-mono">{player.score} pts</div>
+                      <div className="text-xs font-black text-accent">FASE {player.phase}</div>
+                      <div className="text-[10px] font-semibold text-muted font-mono">{player.score} pts</div>
                     </div>
                   </div>
                 );
@@ -1662,15 +1593,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
           </div>
 
           {/* CHAT AND LOGS PANEL */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl h-80 flex flex-col shadow-xl overflow-hidden">
+          <div className="bg-surface border border-default rounded-2xl h-80 flex flex-col shadow-xl overflow-hidden">
             {/* Tabs header */}
-            <div className="flex border-b border-slate-800 bg-slate-950 p-1">
+            <div className="flex border-b border-default bg-surface-muted p-1">
               <button
                 onClick={() => setActiveTab('logs')}
                 className={`flex-1 py-2 font-bold text-xs rounded-lg flex items-center justify-center space-x-1.5 transition-all ${
                   activeTab === 'logs'
-                    ? 'bg-slate-900 text-indigo-400'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-surface text-accent'
+                    : 'text-muted hover:text-secondary'
                 }`}
               >
                 <ListTodo className="w-3.5 h-3.5" />
@@ -1680,8 +1611,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 onClick={() => setActiveTab('chat')}
                 className={`flex-1 py-2 font-bold text-xs rounded-lg flex items-center justify-center space-x-1.5 transition-all ${
                   activeTab === 'chat'
-                    ? 'bg-slate-900 text-indigo-400'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-surface text-accent'
+                    : 'text-muted hover:text-secondary'
                 }`}
               >
                 <MessageSquare className="w-3.5 h-3.5" />
@@ -1690,18 +1621,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             </div>
 
             {/* Content Feed */}
-            <div className="flex-1 p-3 overflow-y-auto bg-slate-950/30 text-xs">
+            <div className="flex-1 p-3 overflow-y-auto bg-surface-muted/30 text-xs">
               {activeTab === 'logs' ? (
                 <div className="space-y-2">
                   {logs.map((log) => (
                     <div key={log.id} className="leading-normal flex space-x-2">
-                      <span className="text-[10px] font-semibold font-mono text-slate-600 shrink-0">{log.timestamp}</span>
+                      <span className="text-[10px] font-semibold font-mono text-muted shrink-0">{log.timestamp}</span>
                       <p className={`
-                        ${log.type === 'success' ? 'text-emerald-400 font-medium' : ''}
-                        ${log.type === 'warning' ? 'text-rose-400 font-medium' : ''}
-                        ${log.type === 'phase' ? 'text-purple-400 font-black tracking-wide uppercase bg-purple-950/25 px-1.5 py-0.5 rounded border border-purple-900/30 w-full' : ''}
-                        ${log.type === 'action' ? 'text-slate-300' : ''}
-                        ${log.type === 'info' ? 'text-slate-500 font-normal' : ''}
+                        ${log.type === 'success' ? 'text-success font-medium' : ''}
+                        ${log.type === 'warning' ? 'text-danger font-medium' : ''}
+                        ${log.type === 'phase' ? 'text-accent font-semibold uppercase bg-accent-soft/30 px-1.5 py-0.5 rounded border border-accent/30 w-full' : ''}
+                        ${log.type === 'action' ? 'text-secondary' : ''}
+                        ${log.type === 'info' ? 'text-muted font-normal' : ''}
                       `}>
                         {log.message}
                       </p>
@@ -1712,24 +1643,24 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
               ) : (
                 <div className="space-y-3.5">
                   {chatMessages.length === 0 && (
-                    <div className="text-center text-slate-600 py-8 text-xs italic">
+                    <div className="text-center text-muted py-8 text-xs italic">
                       Nenhuma mensagem enviada. Comece mandando um "Oi"!
                     </div>
                   )}
                   {chatMessages.map((msg) => (
                     <div key={msg.id} className={`flex flex-col space-y-0.5 ${msg.isSystem ? 'text-center' : ''}`}>
                       {msg.isSystem ? (
-                        <div className="bg-slate-900/60 text-slate-400 text-[10px] py-1 px-2.5 rounded-lg border border-slate-800/80 inline-block mx-auto max-w-[85%]">
+                        <div className="bg-surface/60 text-muted text-[10px] py-1 px-2.5 rounded-lg border border-default/80 inline-block mx-auto max-w-[85%]">
                           {msg.message}
                         </div>
                       ) : (
                         <>
-                          <div className="flex items-center space-x-1 text-[10px] font-bold">
-                            <span>{msg.senderAvatar}</span>
+                          <div className="flex items-center gap-1.5 text-[10px] font-medium">
+                            <PlayerAvatar avatar={msg.senderAvatar} color={msg.senderColor} size={18} isSystem={msg.isSystem} />
                             <span style={{ color: msg.senderColor }}>{msg.senderName}</span>
-                            <span className="text-[9px] font-semibold text-slate-600 font-mono">{msg.timestamp}</span>
+                            <span className="text-[9px] font-semibold text-muted font-mono">{msg.timestamp}</span>
                           </div>
-                          <div className="bg-slate-900 border border-slate-800/60 p-2 rounded-lg text-slate-300 break-words max-w-[95%]">
+                          <div className="bg-surface border border-default/60 p-2 rounded-lg text-secondary break-words max-w-[95%]">
                             {msg.message}
                           </div>
                         </>
@@ -1743,16 +1674,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
             {/* Chat Input or Preset Quick Words */}
             {activeTab === 'chat' && (
-              <div className="p-2 border-t border-slate-850 bg-slate-950 flex flex-col space-y-2">
+              <div className="p-2 border-t border-default bg-surface-muted flex flex-col space-y-2">
                 
                 {/* Preset words */}
                 <div className="flex gap-1 overflow-x-auto py-0.5 scrollbar-none">
-                  {['Eita! 😲', 'Curinga! 🔥', 'Boa jogada! 👏', 'Estou quase! 😎', 'Não me pulem! 🚫', 'Que azar... 😢'].map((word) => (
+                  {['Eita!', 'Curinga!', 'Boa jogada', 'Quase lá', 'Não me pulem', 'Que azar'].map((word) => (
                     <button
                       key={word}
                       type="button"
                       onClick={() => handleSendPresetMessage(word)}
-                      className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-300 font-bold rounded-lg shrink-0 cursor-pointer"
+                      className="px-2 py-1 bg-surface hover:bg-surface-raised border border-default text-[10px] text-secondary font-bold rounded-lg shrink-0 cursor-pointer"
                     >
                       {word}
                     </button>
@@ -1765,12 +1696,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Digite no chat..."
-                    className="flex-1 bg-slate-900 border border-slate-850 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-indigo-500"
+                    className="flex-1 bg-surface border border-default rounded-xl px-3 py-2 text-xs text-secondary outline-none focus:border-accent"
                     maxLength={100}
                   />
                   <button
                     type="submit"
-                    className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl cursor-pointer"
+                    className="p-2 btn-primary hover:opacity-90 text-white rounded-lg cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
                   </button>
@@ -1785,21 +1716,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
       {/* 3. PHASE BUILDER MODAL / BOTTOM SCREEN DRAWER */}
       {isMyTurn && turnState === 'playing' && isBuildingPhase && (
-        <div className="bg-slate-900 border-2 border-indigo-600 rounded-2xl p-5 my-6 shadow-2xl relative overflow-hidden animate-fade-in">
-          <div className="absolute top-2 right-2 text-[10px] bg-indigo-500/10 text-indigo-400 font-extrabold px-2 py-0.5 rounded-full uppercase">
+        <div className="panel border-accent/50 p-5 my-6 relative">
+          <div className="absolute top-2 right-2 text-[10px] bg-accent-soft/50 text-accent font-medium px-2 py-0.5 rounded uppercase">
             Organizador de Fase {activePlayer.phase}
           </div>
 
           <div className="space-y-4">
             <div className="leading-tight">
-              <h4 className="text-sm font-black text-slate-200">
+              <h4 className="text-sm font-black text-secondary">
                 Fase {activePlayer.phase}: {STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.name}
               </h4>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted">
                 {STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.description}
-              </p>
-              <p className="text-[11px] text-indigo-400/80 mt-1">
-                Dica: clique em várias cartas da mão para selecioná-las e mova todas de uma vez para o grupo.
               </p>
             </div>
 
@@ -1807,21 +1735,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
               {/* Build group 1 */}
-              <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
-                <div className="flex justify-between items-center text-xs font-extrabold text-slate-400">
+              <div className="bg-surface-muted p-3 rounded-xl border border-default space-y-2">
+                <div className="flex justify-between items-center text-xs font-extrabold text-muted">
                   <span>Grupo 1</span>
-                  <span className="text-[10px] font-normal text-slate-500">Mínimo necessário</span>
+                  <span className="text-[10px] font-normal text-muted">Mínimo necessário</span>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5 min-h-16 p-2 bg-slate-900/60 rounded-lg border border-dashed border-slate-800 items-center justify-center">
+                <div className="flex flex-wrap gap-1.5 min-h-16 p-2 bg-surface/60 rounded-lg border border-dashed border-default items-center justify-center">
                   {buildGroup1.length === 0 ? (
-                    <span className="text-[10px] text-slate-600 uppercase font-bold">Vazio</span>
+                    <span className="text-[10px] text-muted uppercase font-bold">Vazio</span>
                   ) : (
                     buildGroup1.map((c) => (
                       <button
                         key={c.id}
                         onClick={() => removeCardFromBuildGroup(c.id, 1)}
-                        className="w-10 h-14 rounded-lg bg-slate-950 border border-slate-700 p-1 text-center flex flex-col justify-between hover:border-rose-500 hover:text-rose-400 transition-colors cursor-pointer group"
+                        className="w-10 h-14 rounded-lg bg-surface-muted border border-default p-1 text-center flex flex-col justify-between hover:border-danger hover:text-danger transition-colors cursor-pointer group"
                         title="Remover"
                       >
                         <span className="text-[9px] font-black font-mono leading-none" style={{ color: c.type === 'wild' ? '#10b981' : c.color }}>
@@ -1830,7 +1758,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                         <span className="text-[9px] font-black group-hover:hidden" style={{ color: c.type === 'wild' ? '#10b981' : c.color }}>
                           {c.type === 'wild' ? 'W' : c.value}
                         </span>
-                        <span className="text-[8px] font-bold text-rose-500 hidden group-hover:block w-full">Sair</span>
+                        <span className="text-[8px] font-bold text-danger hidden group-hover:block w-full">Sair</span>
                       </button>
                     ))
                   )}
@@ -1841,21 +1769,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
               {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
                 STANDARD_PHASES.find(p => p.id === activePlayer.phase)?.type || ''
               ) && (
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
-                  <div className="flex justify-between items-center text-xs font-extrabold text-slate-400">
+                <div className="bg-surface-muted p-3 rounded-xl border border-default space-y-2">
+                  <div className="flex justify-between items-center text-xs font-extrabold text-muted">
                     <span>Grupo 2</span>
-                    <span className="text-[10px] font-normal text-slate-500">Mínimo necessário</span>
+                    <span className="text-[10px] font-normal text-muted">Mínimo necessário</span>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5 min-h-16 p-2 bg-slate-900/60 rounded-lg border border-dashed border-slate-800 items-center justify-center">
+                  <div className="flex flex-wrap gap-1.5 min-h-16 p-2 bg-surface/60 rounded-lg border border-dashed border-default items-center justify-center">
                     {buildGroup2.length === 0 ? (
-                      <span className="text-[10px] text-slate-600 uppercase font-bold">Vazio</span>
+                      <span className="text-[10px] text-muted uppercase font-bold">Vazio</span>
                     ) : (
                       buildGroup2.map((c) => (
                         <button
                           key={c.id}
                           onClick={() => removeCardFromBuildGroup(c.id, 2)}
-                          className="w-10 h-14 rounded-lg bg-slate-950 border border-slate-700 p-1 text-center flex flex-col justify-between hover:border-rose-500 hover:text-rose-400 transition-colors cursor-pointer group"
+                          className="w-10 h-14 rounded-lg bg-surface-muted border border-default p-1 text-center flex flex-col justify-between hover:border-danger hover:text-danger transition-colors cursor-pointer group"
                           title="Remover"
                         >
                           <span className="text-[9px] font-black font-mono leading-none" style={{ color: c.type === 'wild' ? '#10b981' : c.color }}>
@@ -1864,7 +1792,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                           <span className="text-[9px] font-black group-hover:hidden" style={{ color: c.type === 'wild' ? '#10b981' : c.color }}>
                             {c.type === 'wild' ? 'W' : c.value}
                           </span>
-                          <span className="text-[8px] font-bold text-rose-500 hidden group-hover:block w-full">Sair</span>
+                          <span className="text-[8px] font-bold text-danger hidden group-hover:block w-full">Sair</span>
                         </button>
                       ))
                     )}
@@ -1875,17 +1803,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             </div>
 
             {/* Validation feedback & laydown trigger */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-800 pt-3">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-default pt-3">
               <div className="flex items-center space-x-2 text-xs">
                 {(() => {
                   const check = checkBuilderValidity();
                   return check.isValid ? (
-                    <div className="flex items-center space-x-1.5 text-emerald-400 font-extrabold uppercase bg-emerald-950/30 px-3 py-1 rounded-full border border-emerald-900/30">
+                    <div className="flex items-center space-x-1.5 text-success font-extrabold uppercase bg-success-muted/30 px-3 py-1 rounded-full border border-success/30">
                       <Check className="w-3.5 h-3.5" />
                       <span>Combinação Válida!</span>
                     </div>
                   ) : (
-                    <div className="flex items-center space-x-1.5 text-amber-400 font-bold bg-amber-950/20 px-3 py-1 rounded-full border border-amber-900/20">
+                    <div className="flex items-center space-x-1.5 text-accent font-bold bg-accent-soft/20 px-3 py-1 rounded-full border border-accent/20">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                       <span>{check.error || "Organizando cartas..."}</span>
                     </div>
@@ -1900,7 +1828,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                     setBuildGroup1([]);
                     setBuildGroup2([]);
                   }}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-surface-raised hover:bg-surface-muted text-secondary rounded-lg text-xs font-bold transition-colors cursor-pointer"
                 >
                   Limpar Grupos
                 </button>
@@ -1908,14 +1836,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 <button
                   onClick={handleLayDownPhase}
                   disabled={!checkBuilderValidity().isValid}
-                  className={`flex-1 sm:flex-initial px-6 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+                  className={`flex-1 sm:flex-initial px-6 py-2 rounded-lg text-xs font-semibold uppercase flex items-center justify-center gap-1.5 cursor-pointer ${
                     checkBuilderValidity().isValid
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-950/40 animate-pulse'
-                      : 'bg-slate-800 text-slate-500 border border-slate-850 cursor-not-allowed'
+                      ? 'btn-primary'
+                      : 'bg-surface-raised text-muted border border-default cursor-not-allowed'
                   }`}
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span>BAIXAR FASE {activePlayer.phase}!</span>
+                  <Layers className="w-4 h-4" />
+                  <span>Baixar fase {activePlayer.phase}</span>
                 </button>
               </div>
             </div>
@@ -1925,32 +1853,96 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
       )}
 
       {/* 4. PLAYER ACTIVE HAND AREA */}
-      <footer className="bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-6 shadow-2xl relative space-y-4">
+      <footer className="bg-surface border border-default rounded-xl p-4 md:p-5 shadow-lg relative space-y-4">
         
         {/* Sorting and State Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
-          <div className="flex items-center space-x-2">
-            <span className="text-xs uppercase font-extrabold tracking-wider text-slate-400">Sua Mão</span>
-            <span className="text-[11px] font-black bg-slate-950 text-indigo-400 border border-slate-800 px-2.5 py-0.5 rounded-full font-mono">
-              {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).length} cartas
-            </span>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-default/80 pb-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs uppercase font-bold tracking-wide text-muted">Sua Mão</span>
+              <span className="text-[11px] font-semibold bg-surface text-accent/90 border border-default px-2.5 py-0.5 rounded-full">
+                {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).length} cartas
+              </span>
+            </div>
+
+            {isMyTurn && turnState === 'playing' && !myPlayer.hasLaidDownThisRound && (
+              <button
+                onClick={handleToggleBuilder}
+                className={`px-3 py-1 rounded-md text-[10px] font-semibold border transition-colors cursor-pointer flex items-center gap-1 ${
+                  isBuildingPhase
+                    ? 'bg-danger-muted border-danger text-danger'
+                    : 'btn-primary hover:opacity-90 border-accent text-on-accent'
+                }`}
+              >
+                <Layers className="w-3 h-3" />
+                <span>{isBuildingPhase ? 'Fechar organizador' : `Organizar fase ${myPlayer.phase}`}</span>
+              </button>
+            )}
           </div>
 
           {/* Sorters */}
           {isMyTurn && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-end">
+              {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
+                <button
+                  onClick={() => handleDiscard(primarySelectedCard)}
+                  className="px-3 py-1 btn-danger font-semibold text-[10px] rounded-md cursor-pointer flex items-center gap-1"
+                >
+                  {primarySelectedCard.type === 'skip' ? (
+                    <><Ban className="w-3 h-3" /> Pular</>
+                  ) : (
+                    <><Trash2 className="w-3 h-3" /> Descartar</>
+                  )}
+                </button>
+              )}
+
+              {isBuildingPhase && selectedCards.length > 0 && (
+                <>
+                  <button
+                    onClick={() => addCardsToBuildGroup(selectedCards, 1)}
+                    className="px-3 py-1 btn-primary font-semibold text-[10px] rounded-md cursor-pointer"
+                  >
+                    {selectedCards.length > 1
+                      ? `Grupo 1 (${selectedCards.length})`
+                      : 'Grupo 1'}
+                  </button>
+
+                  {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
+                    STANDARD_PHASES.find(p => p.id === myPlayer.phase)?.type || ''
+                  ) && (
+                    <button
+                      onClick={() => addCardsToBuildGroup(selectedCards, 2)}
+                      className="px-3 py-1 bg-surface-muted hover:bg-surface-raised text-primary font-semibold text-[10px] rounded-md border border-default cursor-pointer"
+                    >
+                      {selectedCards.length > 1
+                        ? `Grupo 2 (${selectedCards.length})`
+                        : 'Grupo 2'}
+                    </button>
+                  )}
+                </>
+              )}
+
               <button
                 onClick={() => sortHand('value')}
-                className="px-3 py-1 bg-slate-950 hover:bg-slate-800 active:bg-slate-950 text-slate-300 hover:text-white rounded-lg text-[10px] font-black border border-slate-800/80 transition-all cursor-pointer flex items-center space-x-1"
+                className={`px-3 py-1 rounded-md text-[10px] font-semibold border transition-colors cursor-pointer flex items-center space-x-1 ${
+                  handSortMode === 'value'
+                    ? 'bg-accent-soft border-accent text-accent'
+                    : 'bg-surface hover:bg-surface-raised text-secondary hover:text-primary border-default'
+                }`}
               >
                 <span>123</span>
                 <span>Ordenar Valor</span>
               </button>
               <button
                 onClick={() => sortHand('color')}
-                className="px-3 py-1 bg-slate-950 hover:bg-slate-800 active:bg-slate-950 text-slate-300 hover:text-white rounded-lg text-[10px] font-black border border-slate-800/80 transition-all cursor-pointer flex items-center space-x-1"
+                className={`px-3 py-1 rounded-md text-[10px] font-semibold border transition-colors cursor-pointer flex items-center space-x-1 ${
+                  handSortMode === 'color'
+                    ? 'bg-accent-soft border-accent text-accent'
+                    : 'bg-surface hover:bg-surface-raised text-secondary hover:text-primary border-default'
+                }`}
               >
-                <span className="w-2 h-2 rounded-full bg-gradient-to-tr from-red-500 to-blue-500 shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-accent shrink-0 -ml-1" />
                 <span>Ordenar Cor</span>
               </button>
             </div>
@@ -1959,157 +1951,93 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
         {/* Hand Cards Render */}
         {!isOnline && !isMyTurn ? (
-          <div className="h-44 bg-slate-950 rounded-2xl border border-dashed border-slate-800 flex flex-col items-center justify-center text-slate-600 text-sm">
-            <User className="w-8 h-8 text-slate-700 animate-pulse mb-2" />
-            <p className="font-semibold text-xs uppercase tracking-widest text-slate-500">Aguardando sua vez...</p>
-            <p className="text-[10px] text-slate-600 mt-1">Quando seu turno começar, suas cartas serão reveladas aqui.</p>
+          <div className="h-44 bg-surface-muted/60 rounded-xl border border-dashed border-default flex flex-col items-center justify-center text-muted text-sm">
+            <User className="w-7 h-7 text-muted mb-2" />
+            <p className="font-medium text-xs text-muted">Aguardando sua vez...</p>
+            <p className="text-[10px] text-muted mt-1">Suas cartas aparecem aqui no seu turno.</p>
           </div>
         ) : (
           <div className="space-y-4">
             
-            {/* Cards Horizontal Container */}
-            <div className="flex gap-2 py-2 overflow-x-auto min-h-48 px-1 scrollbar-thin">
-              {myPlayer.cards.filter((c) => !c.id.startsWith('hidden-')).map((card) => {
+            {/* Cards fan layout */}
+            <div className="hand-fan">
+              {(() => {
+                const rawCards = myPlayer.cards.filter((c) => !c.id.startsWith('hidden-'));
+                const visibleCards = handSortMode
+                  ? sortHandCards(rawCards, handSortMode)
+                  : rawCards;
+                const total = visibleCards.length;
+                const fanWidth = getHandFanSpreadWidth(total);
+                return (
+              <div
+                className="hand-fan__pivot"
+                style={{ ['--fan-width' as string]: `${fanWidth}px` }}
+              >
+              {visibleCards.map((card, index) => {
                 const isSelected = selectedCards.some((c) => c.id === card.id);
                 const isInGroup1 = buildGroup1.some(c => c.id === card.id);
                 const isInGroup2 = buildGroup2.some(c => c.id === card.id);
                 const isW = card.type === 'wild';
                 const isS = card.type === 'skip';
+                const pipClass = cardPipClass(card.color);
+                const { translateX, rotate, zIndex } = getHandFanLayout(index, total);
+                const selectedLift = isSelected ? '-2.5rem' : '0px';
 
                 return (
                   <button
                     key={card.id}
                     disabled={!isMyTurn}
                     onClick={() => handleHandCardClick(card)}
-                    className={`w-24 h-36 rounded-xl border-4 transition-all relative flex flex-col justify-between p-3 shrink-0 overflow-hidden text-left ${
-                      isSelected
-                        ? 'border-indigo-500 scale-105 shadow-lg shadow-indigo-950/50 -translate-y-2'
-                        : isInGroup1 || isInGroup2
-                        ? 'border-indigo-900/60 opacity-50 saturate-50'
-                        : 'border-slate-800 bg-slate-950 hover:border-slate-700 hover:-translate-y-1'
-                    } cursor-pointer`}
+                    className={`hand-fan__card playing-card text-left ${
+                      isW ? 'playing-card--wild' : isS ? 'playing-card--skip' : ''
+                    } ${isSelected ? 'playing-card--selected' : ''} ${
+                      isInGroup1 || isInGroup2 ? 'playing-card--in-group' : ''
+                    }`}
                     style={{
-                      backgroundColor: isS ? '#31101b' : isW ? '#09251a' : '#0a0f1d',
+                      zIndex: isSelected ? 200 : zIndex,
+                      ['--fan-x' as string]: `${translateX}px`,
+                      ['--fan-rot' as string]: `${rotate}deg`,
+                      ['--fan-y' as string]: selectedLift,
                     }}
                   >
-                    {/* Suit values */}
-                    <div className="flex justify-between w-full text-xs font-black font-mono">
-                      <span style={{ color: isW ? '#10b981' : isS ? '#f43f5e' : card.color }}>
-                        {isW ? 'W' : isS ? 'S' : card.value}
-                      </span>
+                    <div className="h-full flex flex-col justify-between">
+                    <div className={`playing-card__pip ${pipClass}`}>
+                      {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
                     </div>
 
-                    {/* Large display center */}
-                    <div className="text-center font-black">
+                    <div className="playing-card__center text-center flex items-center justify-center">
                       {isW ? (
-                        <span className="text-xl bg-gradient-to-br from-emerald-400 to-teal-400 bg-clip-text text-transparent font-sans tracking-tight">WILD</span>
+                        <Wand2 className="playing-card__icon-lg" />
                       ) : isS ? (
-                        <span className="text-xl text-rose-500 font-sans tracking-tight">SKIP</span>
+                        <Ban className="playing-card__icon-lg" />
                       ) : (
-                        <span className="text-3xl font-mono" style={{ color: card.color }}>
+                        <span className={`playing-card__value ${pipClass}`}>
                           {card.value}
                         </span>
                       )}
                     </div>
 
-                    {/* Suit indicators bottom */}
-                    <div className="w-full flex justify-between items-end text-xs font-black font-mono">
+                    <div className="w-full flex justify-between items-end">
                       {isInGroup1 && (
-                        <span className="text-[8px] bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 px-1 rounded-sm uppercase font-extrabold">G1</span>
+                        <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G1</span>
                       )}
                       {isInGroup2 && (
-                        <span className="text-[8px] bg-purple-500/10 border border-purple-500/30 text-purple-400 px-1 rounded-sm uppercase font-extrabold">G2</span>
+                        <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G2</span>
                       )}
                       {!isInGroup1 && !isInGroup2 && <span />}
 
-                      <span style={{ color: isW ? '#10b981' : isS ? '#f43f5e' : card.color }}>
-                        {isW ? 'W' : isS ? 'S' : card.value}
+                      <span className={`playing-card__pip rotate-180 flex justify-end ${pipClass}`}>
+                        {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
                       </span>
+                    </div>
                     </div>
                   </button>
                 );
               })}
-            </div>
-
-            {/* Selected Card Action Drawer */}
-            {selectedCards.length > 0 && (
-              <div className="bg-slate-950 border border-slate-850 p-4 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in">
-                <div className="flex items-center space-x-3 text-xs">
-                  {isBuildingPhase && selectedCards.length > 1 ? (
-                    <div>
-                      <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">
-                        Cartas Selecionadas
-                      </span>
-                      <span className="text-sm font-black text-indigo-300">
-                        {selectedCards.length} cartas prontas para mover ao grupo
-                      </span>
-                    </div>
-                  ) : primarySelectedCard ? (
-                    <>
-                      <div className="w-8 h-12 rounded border border-slate-800 bg-slate-900 flex items-center justify-center font-bold">
-                        <span style={{ color: primarySelectedCard.type === 'wild' ? '#10b981' : primarySelectedCard.type === 'skip' ? '#f43f5e' : primarySelectedCard.color }}>
-                          {primarySelectedCard.type === 'wild' ? 'W' : primarySelectedCard.type === 'skip' ? 'S' : primarySelectedCard.value}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">Carta Selecionada</span>
-                        <span className="text-sm font-black text-slate-200">
-                          {primarySelectedCard.type === 'wild' ? 'Curinga (Wild Card)' : primarySelectedCard.type === 'skip' ? 'Skip (Pular Oponente)' : `${primarySelectedCard.value} de cor ${primarySelectedCard.color.toUpperCase()}`}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div>
-                      <span className="font-extrabold text-white block uppercase text-[10px] text-slate-500">
-                        Cartas Selecionadas
-                      </span>
-                      <span className="text-sm font-black text-indigo-300">
-                        {selectedCards.length} cartas — selecione uma para descartar ou bater
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                  {isBuildingPhase && (
-                    <>
-                      <button
-                        onClick={() => addCardsToBuildGroup(selectedCards, 1)}
-                        disabled={selectedCards.length === 0}
-                        className="flex-1 sm:flex-initial px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg cursor-pointer"
-                      >
-                        {selectedCards.length > 1
-                          ? `Mover ${selectedCards.length} para Grupo 1`
-                          : 'Mover para Grupo 1'}
-                      </button>
-
-                      {['sets_2_3', 'set_3_run_4', 'set_4_run_4', 'sets_2_4', 'set_5_set_2', 'set_5_set_3'].includes(
-                        STANDARD_PHASES.find(p => p.id === myPlayer.phase)?.type || ''
-                      ) && (
-                        <button
-                          onClick={() => addCardsToBuildGroup(selectedCards, 2)}
-                          disabled={selectedCards.length === 0}
-                          className="flex-1 sm:flex-initial px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg cursor-pointer"
-                        >
-                          {selectedCards.length > 1
-                            ? `Mover ${selectedCards.length} para Grupo 2`
-                            : 'Mover para Grupo 2'}
-                        </button>
-                      )}
-                    </>
-                  )}
-
-                  {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
-                    <button
-                      onClick={() => handleDiscard(primarySelectedCard)}
-                      className="flex-1 sm:flex-initial px-6 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg cursor-pointer transition-transform hover:scale-105 active:scale-95"
-                    >
-                      {primarySelectedCard.type === 'skip' ? '🚫 Usar para Pular Oponente' : '🗑 Descartar'}
-                    </button>
-                  )}
-                </div>
               </div>
-            )}
+                );
+              })()}
+            </div>
 
           </div>
         )}
@@ -2117,14 +2045,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
       {/* 5. SKIP SELECTOR MODAL TARGET */}
       {showSkipSelector && skipCardPending && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center space-y-4 shadow-2xl">
-            <div className="w-12 h-12 bg-rose-500/10 border border-rose-500/30 text-rose-500 rounded-full flex items-center justify-center mx-auto text-xl">
-              🚫
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-surface border border-default rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 bg-danger-muted border border-danger text-danger rounded-full flex items-center justify-center mx-auto">
+              <Ban className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-white">Selecione quem pular</h3>
-              <p className="text-xs text-slate-400">Você descartou um Skip! Escolha um dos adversários para pular o turno na próxima rodada.</p>
+              <h3 className="text-lg font-black text-primary">Selecione quem pular</h3>
+              <p className="text-xs text-muted">Você descartou um Skip! Escolha um dos adversários para pular o turno na próxima rodada.</p>
             </div>
 
             <div className="space-y-2 max-h-52 overflow-y-auto">
@@ -2134,15 +2062,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                   <button
                     key={player.id}
                     onClick={() => executeDiscard(skipCardPending, player.id)}
-                    className="w-full p-3 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-200 hover:text-white flex items-center justify-between border border-slate-850/80 transition-colors cursor-pointer text-xs font-bold"
+                    className="w-full p-3 rounded-xl bg-surface-muted hover:bg-surface-raised text-secondary hover:text-primary flex items-center justify-between border border-default/80 transition-colors cursor-pointer text-xs font-bold"
                   >
                     <div className="flex items-center space-x-2">
-                      <span>{player.avatar}</span>
+                      <PlayerAvatar avatar={player.avatar} color={player.color} size={22} isBot={player.isBot} />
                       <span style={{ color: player.color }}>{player.name}</span>
-                      {player.isBot && <span className="text-[10px] text-slate-500 font-normal">(IA)</span>}
+                      {player.isBot && <span className="text-[10px] text-muted font-normal">(IA)</span>}
                     </div>
 
-                    <div className="text-slate-500 font-mono text-[10px]">
+                    <div className="text-muted font-mono text-[10px]">
                       Fase {player.phase} • {player.score} pts
                     </div>
                   </button>
@@ -2155,7 +2083,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 setSkipCardPending(null);
                 setShowSkipSelector(false);
               }}
-              className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold cursor-pointer"
+              className="w-full py-2 bg-surface-raised hover:bg-surface-muted text-secondary rounded-lg text-xs font-bold cursor-pointer"
             >
               Cancelar Descarte
             </button>
@@ -2165,45 +2093,45 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
       {/* 6. ROUND OVER DISPLAY SCREEN overlay */}
       {room.status === 'round_end' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-6 my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-surface border border-default rounded-2xl p-6 shadow-2xl space-y-6 my-8">
             
             <div className="text-center space-y-2">
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full text-amber-400 text-xs font-extrabold">
+              <div className="inline-flex items-center space-x-1.5 px-3 py-1 bg-accent-soft/30 border border-accent/20 rounded-full text-accent text-xs font-extrabold">
                 <Award className="w-4 h-4" />
                 <span>RODADA ENCERRADA!</span>
               </div>
-              <h2 className="text-3xl font-black text-white tracking-tight uppercase">
+              <h2 className="text-3xl font-black text-primary tracking-tight uppercase">
                 Resultados da Rodada {room.roundNumber}
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted">
                 {roundEndReason === 'all_laid_down'
                   ? 'Todos os jogadores baixaram suas fases — todos avançam para a próxima fase!'
                   : 'Um jogador ficou sem cartas — apenas quem baixou a fase avança.'}
               </p>
               {autoStartCountdown !== null && autoStartCountdown > 0 && (
-                <p className="text-[11px] text-indigo-400 font-semibold">
+                <p className="text-[11px] text-accent font-semibold">
                   {isOnline && !onlineSession?.isHost
-                    ? `O host iniciará a nova rodada em ${autoStartCountdown}s…`
+                    ? 'Aguardando o host iniciar a próxima rodada…'
                     : `Nova rodada em ${autoStartCountdown}s…`}
                 </p>
               )}
             </div>
 
             {/* Results Table */}
-            <div className="divide-y divide-slate-800 bg-slate-950 rounded-xl p-4 border border-slate-850">
+            <div className="divide-y divide-default bg-surface-muted rounded-xl p-4 border border-default">
               {room.players.map((player) => {
                 const hadLaidDown = room.laidDownPhases.some(l => l.playerId === player.id) || player.hasLaidDownThisRound;
                 
                 return (
                   <div key={player.id} className="py-3 flex flex-wrap gap-4 items-center justify-between text-xs">
                     <div className="flex items-center space-x-2 min-w-[180px]">
-                      <span className="text-2xl">{player.avatar}</span>
+                      <PlayerAvatar avatar={player.avatar} color={player.color} size={32} isBot={player.isBot} />
                       <div>
-                        <span className="font-extrabold text-slate-200 block" style={{ color: player.color }}>
+                        <span className="font-extrabold text-secondary block" style={{ color: player.color }}>
                           {player.name}
                         </span>
-                        <span className="text-[10px] text-slate-500">
+                        <span className="text-[10px] text-muted">
                           {player.isBot ? 'Jogador Bot (IA)' : 'Jogador Humano'}
                         </span>
                       </div>
@@ -2212,13 +2140,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                     <div className="flex items-center space-x-8">
                       {/* Phase outcome */}
                       <div className="text-center">
-                        <div className="text-[10px] uppercase font-bold text-slate-500 mb-0.5">Status da Fase</div>
+                        <div className="text-[10px] uppercase font-bold text-muted mb-0.5">Status da Fase</div>
                         {hadLaidDown ? (
-                          <span className="text-[10px] bg-emerald-950/40 border border-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                          <span className="text-[10px] bg-success-muted/40 border border-success/30 text-success px-2 py-0.5 rounded-full font-bold">
                             Completa! ➔ Ir para F{player.phase}
                           </span>
                         ) : (
-                          <span className="text-[10px] bg-rose-950/40 border border-rose-900/30 text-rose-400 px-2 py-0.5 rounded-full font-bold">
+                          <span className="text-[10px] bg-danger-muted/40 border border-danger/30 text-danger px-2 py-0.5 rounded-full font-bold">
                             Falhou ➔ Mantém F{player.phase}
                           </span>
                         )}
@@ -2226,8 +2154,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
                       {/* Cumulative Score */}
                       <div className="text-right">
-                        <div className="text-[10px] uppercase font-bold text-slate-500 mb-0.5">Pontuação Total</div>
-                        <span className="font-black text-slate-100 font-mono text-sm">{player.score} pts</span>
+                        <div className="text-[10px] uppercase font-bold text-muted mb-0.5">Pontuação Total</div>
+                        <span className="font-black text-primary font-mono text-sm">{player.score} pts</span>
                       </div>
                     </div>
 
@@ -2241,7 +2169,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
               {!isOnline && (
                 <button
                   onClick={handleResetGame}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                  className="px-4 py-2 bg-surface-raised hover:bg-surface-muted text-secondary font-bold text-xs rounded-xl cursor-pointer"
                 >
                   Reiniciar Todo Jogo
                 </button>
@@ -2249,11 +2177,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
               <button
                 onClick={handleNextRound}
-                disabled={isOnline && !onlineSession?.isHost}
-                className={`px-8 py-3 rounded-xl font-black text-sm tracking-wide shadow-lg flex items-center space-x-2 transition-transform ${
+                disabled={(isOnline && !onlineSession?.isHost) || isActionPending}
+                className={`px-8 py-3 rounded-xl font-black text-sm tracking-wide flex items-center space-x-2 transition-transform cursor-pointer ${
                   isOnline && !onlineSession?.isHost
-                    ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-indigo-900/40 hover:scale-[1.02] active:scale-[0.98] cursor-pointer animate-bounce'
+                    ? 'bg-surface-raised text-muted cursor-not-allowed'
+                    : 'btn-primary hover:opacity-90'
                 }`}
               >
                 <span>
@@ -2262,7 +2190,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                     : `INICIAR RODADA ${room.roundNumber + 1}`}
                 </span>
                 {(!isOnline || onlineSession?.isHost) && (
-                  <ArrowRight className="w-4 h-4 text-white" />
+                  <ArrowRight className="w-4 h-4 text-on-accent" />
                 )}
               </button>
             </div>
@@ -2273,49 +2201,47 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
 
       {/* 7. GAME OVER CELEBRATION MODAL overlay */}
       {room.status === 'game_over' && room.winnerId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-8 text-center space-y-6 shadow-2xl relative overflow-hidden animate-fade-in">
-            
-            {/* Confetti decoration */}
-            <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-r from-yellow-400 via-pink-500 to-indigo-500" />
-            
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-md p-4">
+          <div className="w-full max-w-md panel p-8 text-center space-y-6 relative overflow-hidden">
             {(() => {
               const champion = room.players.find(p => p.id === room.winnerId);
               if (!champion) return null;
 
               return (
                 <div className="space-y-4">
-                  <div className="text-5xl animate-bounce">🏆</div>
+                  <div className="w-16 h-16 rounded-full bg-accent-soft border border-accent flex items-center justify-center mx-auto">
+                    <Trophy className="w-8 h-8 text-accent" />
+                  </div>
                   
                   <div className="space-y-1">
-                    <p className="text-[10px] uppercase font-black tracking-widest text-yellow-500 animate-pulse">CAMPEÃO SUPREMO</p>
-                    <h2 className="text-3xl font-black tracking-tight" style={{ color: champion.color }}>
+                    <p className="text-[10px] uppercase font-semibold tracking-wide text-accent">Campeão</p>
+                    <h2 className="text-2xl font-bold" style={{ color: champion.color }}>
                       {champion.name}
                     </h2>
                   </div>
 
-                  <div className="inline-flex items-center space-x-1 px-4 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 font-bold rounded-full text-xs">
-                    <span>Fase 10 Completada com {champion.score} pts!</span>
+                  <div className="inline-flex items-center gap-1 px-4 py-1.5 bg-accent-soft/50 border border-accent text-accent font-medium rounded-full text-xs">
+                    <span>Fase 10 — {champion.score} pts</span>
                   </div>
 
-                  <p className="text-xs text-slate-400 leading-relaxed px-2">
-                    Parabéns! {champion.name} superou as adversidades, completou as 10 Fases e garantiu a vitória nesta partida fantástica!
+                  <p className="text-xs text-muted leading-relaxed px-2">
+                    {champion.name} completou as 10 fases com a menor pontuação.
                   </p>
                 </div>
               );
             })()}
 
             {/* Ranked summary list */}
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 text-xs text-left divide-y divide-slate-800">
-              <p className="text-[10px] uppercase font-bold text-slate-500 pb-2">Classificação Final</p>
+            <div className="bg-surface-muted p-4 rounded-xl border border-default text-xs text-left divide-y divide-default">
+              <p className="text-[10px] uppercase font-bold text-muted pb-2">Classificação Final</p>
               {[...room.players].sort((a, b) => b.phase - a.phase || a.score - b.score).map((player, idx) => (
                 <div key={player.id} className="py-2 flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <span className="font-mono text-slate-500">{idx + 1}º</span>
-                    <span>{player.avatar}</span>
+                    <span className="font-mono text-muted">{idx + 1}º</span>
+                    <PlayerAvatar avatar={player.avatar} color={player.color} size={22} isBot={player.isBot} />
                     <span className="font-bold" style={{ color: player.color }}>{player.name}</span>
                   </div>
-                  <div className="text-slate-400 font-mono">Fase {player.phase} ({player.score} pts)</div>
+                  <div className="text-muted font-mono">Fase {player.phase} ({player.score} pts)</div>
                 </div>
               ))}
             </div>
@@ -2323,14 +2249,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
             <div className="flex gap-2">
               <button
                 onClick={onExit}
-                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl cursor-pointer"
+                className="flex-1 py-3 bg-surface-raised hover:bg-surface-muted text-secondary font-bold text-xs rounded-xl cursor-pointer"
               >
                 Voltar ao Menu
               </button>
               
               <button
                 onClick={handleResetGame}
-                className="flex-1 py-3 bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-400 hover:to-amber-500 text-slate-950 rounded-xl font-extrabold text-xs tracking-wider shadow-lg shadow-yellow-950/20 cursor-pointer"
+                className="flex-1 py-3 btn-primary font-extrabold text-xs tracking-wider cursor-pointer"
               >
                 JOGAR NOVAMENTE
               </button>

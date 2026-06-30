@@ -7,7 +7,6 @@ export interface RoomSession {
   memberId: string;
   sessionToken: string;
   isHost: boolean;
-  waitingForNextRound?: boolean;
 }
 
 export interface LobbyPlayer {
@@ -18,7 +17,6 @@ export interface LobbyPlayer {
   isBot: boolean;
   isConnected: boolean;
   seatIndex: number;
-  waitingForNextRound?: boolean;
 }
 
 export interface LobbyState {

@@ -3,11 +3,18 @@ import { GameRoom, STANDARD_PHASES } from './types';
 import { Lobby } from './components/Lobby';
 import { GameBoard } from './components/GameBoard';
 import { RulesModal } from './components/RulesModal';
-import { BookOpen, Sparkles, Layers, Shield, Play } from 'lucide-react';
+import { ThemeToggle } from './components/ThemeToggle';
+import { BookOpen, Layers, Bot, Users, ChevronRight } from 'lucide-react';
 import { RoomSession } from './services/onlineApi';
-import { disconnectOnlineSocket, emitRoomLeave } from './services/onlineSocket';
+import { emitRoomLeave } from './services/onlineSocket';
+import type { Theme } from './lib/theme';
 
-function App() {
+type AppProps = {
+  initialTheme: Theme;
+};
+
+function App({ initialTheme }: AppProps) {
+  const [theme, setTheme] = useState<Theme>(initialTheme);
   const [activeRoom, setActiveRoom] = useState<GameRoom | null>(null);
   const [playerProfile, setPlayerProfile] = useState<{ name: string; avatar: string; color: string } | null>(null);
   const [onlineSession, setOnlineSession] = useState<RoomSession | null>(null);
@@ -31,127 +38,112 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-purple-600/30 selection:text-purple-300">
-      
-      {/* Background ambient gradient glow */}
-      <div className="absolute top-0 inset-x-0 h-[500px] bg-gradient-to-b from-purple-950/20 via-indigo-950/5 to-transparent pointer-events-none -z-10" />
+    <div className="min-h-screen bg-app text-primary flex flex-col font-sans">
+      <ThemeToggle theme={theme} onThemeChange={setTheme} className="theme-toggle-fixed" />
+      <div className="absolute top-0 inset-x-0 h-72 bg-header-fade pointer-events-none -z-10" />
 
       {activeRoom && playerProfile ? (
-        // Game Play Area
         <main className="flex-1 py-4">
-          <GameBoard 
-            initialRoom={activeRoom} 
-            playerProfile={playerProfile} 
+          <GameBoard
+            initialRoom={activeRoom}
+            playerProfile={playerProfile}
             onlineSession={onlineSession}
-            onExit={handleExitGame} 
+            onExit={handleExitGame}
           />
         </main>
       ) : (
-        // Welcome and Lobby Selection Area
         <div className="flex-1 flex flex-col justify-between">
-          
-          {/* Main Content wrapper */}
           <div className="flex-1">
-            {/* Landing Hero Section */}
-            <div className="w-full max-w-6xl mx-auto px-4 pt-10 pb-4 text-center space-y-4">
-              {/* Decorative Banner */}
-              <div className="inline-flex items-center space-x-2 bg-gradient-to-r from-purple-950/50 to-indigo-950/50 border border-purple-800/40 px-4 py-1.5 rounded-full text-xs font-semibold text-purple-300">
-                <Sparkles className="w-4 h-4 text-purple-400 animate-spin" />
-                <span>Simulador Real-Time & Passar-e-Jogar Local</span>
+            <div className="w-full max-w-6xl mx-auto px-4 pt-10 pb-4 text-center space-y-3">
+              <div className="inline-flex items-center gap-2 bg-surface border border-default px-4 py-1.5 rounded-full text-xs font-medium text-muted">
+                <Layers className="w-3.5 h-3.5 text-accent" />
+                <span>Online, local e contra bots</span>
               </div>
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-primary">
+                Phase 10
+              </h1>
+              <p className="text-sm text-muted max-w-md mx-auto">
+                Monte trincas e sequências nas 10 fases clássicas do jogo de cartas.
+              </p>
             </div>
 
-            {/* Lobby Setup Area */}
             <section className="py-2">
               <Lobby onStartGame={handleStartGame} />
             </section>
 
-            {/* Game Features Section */}
-            <section className="w-full max-w-5xl mx-auto px-4 py-12 grid grid-cols-1 md:grid-cols-3 gap-6">
-              
-              <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl space-y-3 shadow-md hover:border-slate-700 transition-colors">
-                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
-                  <Shield className="w-5 h-5" />
+            <section className="w-full max-w-5xl mx-auto px-4 py-10 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="panel p-5 space-y-3">
+                <div className="w-9 h-9 rounded-lg bg-surface-raised border border-default flex items-center justify-center text-accent">
+                  <Bot className="w-4 h-4" />
                 </div>
-                <h4 className="font-extrabold text-sm text-slate-100 uppercase tracking-wider">Inteligência Artificial</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Os bots são programados para analisar suas mãos de forma inteligente, montar estratégias de sequência, sets de valores ou cores e até mesmo usar cartas Skip contra líderes!
+                <h4 className="font-semibold text-sm text-secondary">Contra bots</h4>
+                <p className="text-xs text-muted leading-relaxed">
+                  Pratique sozinho com oponentes automáticos que montam fases e usam cartas Skip estrategicamente.
                 </p>
               </div>
 
-              <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl space-y-3 shadow-md hover:border-slate-700 transition-colors">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-                  <Play className="w-5 h-5 fill-indigo-400/20" />
+              <div className="panel p-5 space-y-3">
+                <div className="w-9 h-9 rounded-lg bg-surface-raised border border-default flex items-center justify-center text-accent">
+                  <Users className="w-4 h-4" />
                 </div>
-                <h4 className="font-extrabold text-sm text-slate-100 uppercase tracking-wider">Segurança Local (Pass & Play)</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Jogue localmente com até 10 amigos com um fluxo de transição inteligente que esconde as cartas da mão, evitando espreitadas e vazamentos de táticas.
+                <h4 className="font-semibold text-sm text-secondary">Passar e jogar</h4>
+                <p className="text-xs text-muted leading-relaxed">
+                  Até 10 jogadores no mesmo dispositivo, com tela de transição que esconde as cartas entre turnos.
                 </p>
               </div>
 
-              <div className="bg-slate-900/60 border border-slate-800/80 p-5 rounded-2xl space-y-3 shadow-md hover:border-slate-700 transition-colors">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <BookOpen className="w-5 h-5" />
+              <div className="panel p-5 space-y-3">
+                <div className="w-9 h-9 rounded-lg bg-surface-raised border border-default flex items-center justify-center text-accent">
+                  <BookOpen className="w-4 h-4" />
                 </div>
-                <h4 className="font-extrabold text-sm text-slate-100 uppercase tracking-wider">Manual & Regras Completas</h4>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Acesse a qualquer momento o manual interativo em português para entender como funcionam as pontuações de cartas, ordem das 10 fases e regras de descarte e compra.
+                <h4 className="font-semibold text-sm text-secondary">Regras integradas</h4>
+                <p className="text-xs text-muted leading-relaxed">
+                  Consulte o manual com as 10 fases, pontuação e cartas especiais a qualquer momento.
                 </p>
               </div>
-
             </section>
 
-            {/* List of 10 phases Preview on landing page */}
-            <section className="w-full max-w-5xl mx-auto px-4 pb-16">
-              <div className="bg-slate-900/30 border border-slate-900 rounded-2xl p-6 space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div className="flex items-center space-x-2">
-                    <Layers className="w-5 h-5 text-purple-400" />
-                    <h3 className="font-black text-sm uppercase tracking-wider text-slate-200">As 10 Fases Originais</h3>
+            <section className="w-full max-w-5xl mx-auto px-4 pb-14">
+              <div className="panel p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-default pb-3">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-accent" />
+                    <h3 className="font-semibold text-sm text-secondary">As 10 fases</h3>
                   </div>
                   <button
                     onClick={() => setIsRulesOpen(true)}
-                    className="text-xs text-purple-400 hover:text-purple-300 font-bold hover:underline"
+                    className="text-xs text-accent hover:text-primary font-medium flex items-center gap-1"
                   >
-                    Ver detalhes das fases ➔
+                    Ver detalhes
+                    <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {STANDARD_PHASES.map((ph) => (
-                    <div key={ph.id} className="bg-slate-950/60 p-3 rounded-xl border border-slate-900 text-center space-y-1 hover:border-slate-800 transition-colors">
-                      <div className="w-6 h-6 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center font-black text-[10px] text-purple-400 mx-auto">
+                    <div
+                      key={ph.id}
+                      className="bg-surface/80 p-2.5 rounded-lg border border-default text-center space-y-1"
+                    >
+                      <div className="w-6 h-6 rounded-full bg-surface-raised border border-default flex items-center justify-center font-semibold text-[10px] text-accent mx-auto">
                         {ph.id}
                       </div>
-                      <div className="font-extrabold text-[11px] text-slate-300 uppercase tracking-tight truncate">
-                        {ph.name}
-                      </div>
-                      <p className="text-[10px] text-slate-500 line-clamp-2 leading-tight">
-                        {ph.description}
-                      </p>
+                      <div className="font-medium text-[11px] text-secondary truncate">{ph.name}</div>
+                      <p className="text-[10px] text-muted line-clamp-2 leading-tight">{ph.description}</p>
                     </div>
                   ))}
                 </div>
               </div>
             </section>
-
           </div>
 
-          {/* Footer Metadata */}
-          <footer className="w-full py-6 bg-slate-950 border-t border-slate-900 text-center text-xs text-slate-500 space-y-1">
-            <p>Phase 10 Multiplayer © 2026. Desenvolvido em React + TypeScript + Tailwind CSS.</p>
-            <p className="text-[11px]">Feito com 💜 para os amantes de jogos de tabuleiro e cartas estratégicas.</p>
+          <footer className="w-full py-5 border-t border-default text-center text-xs text-muted">
+            <p>Phase 10 — React, TypeScript e Tailwind</p>
           </footer>
-
         </div>
       )}
 
-      {/* Rules Modal Overlay */}
-      <RulesModal 
-        isOpen={isRulesOpen} 
-        onClose={() => setIsRulesOpen(false)} 
-      />
-
+      <RulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
     </div>
   );
 }

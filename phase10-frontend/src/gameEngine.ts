@@ -714,7 +714,7 @@ export function botFindHits(
 // Pre-defined funny messages that bots can send to the chat
 export const BOT_CHAT_PHRASES = [
   "Eita, pegaram minha carta do lixo! 😠",
-  "Alguém tem um Curinga aí pra me dar? 🃏",
+  "Alguém tem um Curinga aí pra me dar?",
   "Ufa, essa fase tá difícil demais!",
   "Quem me deu esse Skip vai ver só! 😡",
   "Estou quase batendo, preparem-se! 😈",
