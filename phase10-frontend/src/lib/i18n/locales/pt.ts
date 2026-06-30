@@ -36,38 +36,139 @@ export const pt: Translations = {
     close: 'Fechar',
   },
   rules: {
-    title: 'Regras do Phase 10',
-    tabHow: 'Como jogar',
-    tabPhases: 'As 10 fases',
-    tabScoring: 'Pontuação',
-    tabSpecials: 'Cartas especiais',
-    objectiveTitle: 'Objetivo',
-    objectiveBody:
-      'Complete as 10 fases em ordem. Vence quem terminar a fase 10 com a menor pontuação acumulada.',
-    turnTitle: 'Fluxo do turno',
-    turnSteps: [
-      ['1. Comprar', 'Compre do monte ou do descarte visível.'],
-      ['2. Jogar', 'Baixe sua fase e/ou bata cartas em fases na mesa.'],
-      ['3. Descartar', 'Descarte uma carta para encerrar o turno.'],
+    title: 'Regras — Mestre da Cartas',
+    tabPhase10: 'Fase 10',
+    tabTruco: 'Truco',
+    tabPoker: 'Poker',
+    tabTower: 'Mestre da Torre',
+    towerComingSoon: 'Este modo ainda está em desenvolvimento. As regras abaixo são uma prévia do jogo planejado.',
+    phase10: {
+      tabHow: 'Como jogar',
+      tabPhases: 'As 10 fases',
+      tabScoring: 'Pontuação',
+      tabSpecials: 'Cartas especiais',
+      objectiveTitle: 'Objetivo',
+      objectiveBody:
+        'Complete as 10 fases em ordem. Vence quem terminar a fase 10 com a menor pontuação acumulada.',
+      turnTitle: 'Fluxo do turno',
+      turnSteps: [
+        ['1. Comprar', 'Compre do monte ou do descarte visível.'],
+        ['2. Jogar', 'Baixe sua fase e/ou bata cartas em fases na mesa.'],
+        ['3. Descartar', 'Descarte uma carta para encerrar o turno.'],
+      ],
+      advanceTitle: 'Avanço de fase',
+      advanceBody:
+        'Só avança quem baixar a fase na rodada — exceto quando todos baixam, caso em que todos avançam.',
+      phasesHint:
+        'Grupo: mesmo valor. Sequência: valores consecutivos. Cor: mesma cor.',
+      scoringIntro:
+        'A rodada termina quando alguém descarta a última carta ou quando todos baixam suas fases.',
+      scoringCards: [
+        ['5', 'Cartas 1–9'],
+        ['10', 'Cartas 10–12'],
+        ['15', 'Skip'],
+        ['25', 'Curinga'],
+      ],
+      wildTitle: 'Curinga',
+      wildBody: 'Substitui qualquer número ou cor. Cada grupo precisa de ao menos uma carta natural.',
+      wildTip: 'Pelo menos uma carta natural em cada grupo baixado.',
+      skipTitle: 'Skip',
+      skipBody: 'Ao descartar, escolha um oponente para pular o próximo turno. Não entra em grupos na mesa.',
+    },
+    truco: [
+      {
+        title: 'Objetivo',
+        paragraphs: [
+          'Truco Paulista para 4 jogadores em 2 duplas (parceiros sentados em frente).',
+          'Vence a dupla que chegar primeiro a 12 pontos na partida.',
+        ],
+      },
+      {
+        title: 'Baralho e distribuição',
+        paragraphs: [
+          'Baralho espanhol de 40 cartas (4, 5, 6, 7, valete, dama, rei, ás, 2 e 3).',
+          'Cada jogador recebe 3 cartas. São jogadas 3 vazas por mão.',
+        ],
+      },
+      {
+        title: 'Força das cartas',
+        paragraphs: [
+          'Manilhas (do maior para o menor): 4 de paus ♣, 7 de copas ♥, ás de espadas ♠, 7 de ouros ♦.',
+          'Demais cartas: 3 > 2 > A > K > J > Q > 7 > 6 > 5 > 4.',
+          'Na vaza, vence a carta mais forte. Empate na vaza não define vencedor imediato.',
+        ],
+      },
+      {
+        title: 'Pontuação da mão',
+        paragraphs: [
+          'Quem vencer 2 das 3 vazas ganha a mão e marca pontos.',
+          'Mão normal vale 1 ponto. Truco eleva para 3, Seis para 6, Nove para 9 e Doze para 12.',
+          'Se a dupla adversária correr, quem pediu ganha os pontos do nível anterior.',
+        ],
+      },
+      {
+        title: 'Pedir Truco',
+        paragraphs: [
+          'No seu turno, antes de jogar a carta, você pode pedir Truco para aumentar o valor da mão.',
+          'A dupla adversária aceita (continua jogando pelo novo valor) ou corre (desiste da mão).',
+        ],
+      },
     ],
-    advanceTitle: 'Avanço de fase',
-    advanceBody:
-      'Só avança quem baixar a fase na rodada — exceto quando todos baixam, caso em que todos avançam.',
-    phasesHint:
-      'Grupo: mesmo valor. Sequência: valores consecutivos. Cor: mesma cor.',
-    scoringIntro:
-      'A rodada termina quando alguém descarta a última carta ou quando todos baixam suas fases.',
-    scoringCards: [
-      ['5', 'Cartas 1–9'],
-      ['10', 'Cartas 10–12'],
-      ['15', 'Skip'],
-      ['25', 'Curinga'],
+    poker: [
+      {
+        title: 'Objetivo',
+        paragraphs: [
+          'Texas Hold\'em: forme a melhor mão de 5 cartas usando suas 2 cartas fechadas e as 5 comunitárias.',
+          'Vence quem tiver a mão mais forte no showdown ou quem fizer todos desistirem.',
+        ],
+      },
+      {
+        title: 'Jogadores e fichas',
+        paragraphs: [
+          'De 2 a 6 jogadores. Todos começam com fichas.',
+          'Small blind e big blind são postos automaticamente antes de cada mão.',
+        ],
+      },
+      {
+        title: 'Rodadas de apostas',
+        paragraphs: [
+          'Pré-flop: cada jogador recebe 2 cartas fechadas.',
+          'Flop: 3 cartas comunitárias. Turn: +1 carta. River: +1 carta (5 no total).',
+          'Após cada rodada de cartas, há uma rodada de apostas.',
+        ],
+      },
+      {
+        title: 'Ações',
+        paragraphs: [
+          'Desistir (fold): abandona a mão.',
+          'Passar (check): não aposta se ninguém apostou antes.',
+          'Pagar (call): iguala a aposta atual.',
+          'Aumentar (raise): eleva a aposta. All-in: aposta todas as fichas.',
+        ],
+      },
+      {
+        title: 'Ranking das mãos (maior → menor)',
+        paragraphs: [
+          'Royal flush, straight flush, quadra, full house, flush, sequência, trinca, dois pares, par, carta alta.',
+          'No showdown, a melhor mão de 5 cartas possível vence o pote.',
+        ],
+      },
     ],
-    wildTitle: 'Curinga',
-    wildBody: 'Substitui qualquer número ou cor. Cada grupo precisa de ao menos uma carta natural.',
-    wildTip: 'Pelo menos uma carta natural em cada grupo baixado.',
-    skipTitle: 'Skip',
-    skipBody: 'Ao descartar, escolha um oponente para pular o próximo turno. Não entra em grupos na mesa.',
+    tower: [
+      {
+        title: 'Conceito',
+        paragraphs: [
+          'Mestre da Torre será um jogo de construção estratégica com cartas.',
+          'Os jogadores empilharão cartas para formar torres, equilibrando risco e recompensa.',
+        ],
+      },
+      {
+        title: 'Status',
+        paragraphs: [
+          'Modo em desenvolvimento — em breve no Mestre da Cartas.',
+        ],
+      },
+    ],
     close: 'Fechar',
   },
   lobby: {

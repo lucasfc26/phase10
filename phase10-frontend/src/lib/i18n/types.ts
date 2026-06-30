@@ -17,6 +17,32 @@ export type LegalPageContent = {
   sections: LegalSection[];
 };
 
+export type RulesSection = {
+  title: string;
+  paragraphs: string[];
+};
+
+export type Phase10RulesContent = {
+  tabHow: string;
+  tabPhases: string;
+  tabScoring: string;
+  tabSpecials: string;
+  objectiveTitle: string;
+  objectiveBody: string;
+  turnTitle: string;
+  turnSteps: [string, string][];
+  advanceTitle: string;
+  advanceBody: string;
+  phasesHint: string;
+  scoringIntro: string;
+  scoringCards: [string, string][];
+  wildTitle: string;
+  wildBody: string;
+  wildTip: string;
+  skipTitle: string;
+  skipBody: string;
+};
+
 export type Translations = {
   locale: Locale;
   home: {
@@ -41,24 +67,15 @@ export type Translations = {
   };
   rules: {
     title: string;
-    tabHow: string;
-    tabPhases: string;
-    tabScoring: string;
-    tabSpecials: string;
-    objectiveTitle: string;
-    objectiveBody: string;
-    turnTitle: string;
-    turnSteps: [string, string][];
-    advanceTitle: string;
-    advanceBody: string;
-    phasesHint: string;
-    scoringIntro: string;
-    scoringCards: [string, string][];
-    wildTitle: string;
-    wildBody: string;
-    wildTip: string;
-    skipTitle: string;
-    skipBody: string;
+    tabPhase10: string;
+    tabTruco: string;
+    tabPoker: string;
+    tabTower: string;
+    towerComingSoon: string;
+    phase10: Phase10RulesContent;
+    truco: RulesSection[];
+    poker: RulesSection[];
+    tower: RulesSection[];
     close: string;
   };
   lobby: {

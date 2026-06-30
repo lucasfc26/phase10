@@ -36,37 +36,136 @@ export const en: Translations = {
     close: 'Close',
   },
   rules: {
-    title: 'Phase 10 Rules',
-    tabHow: 'How to play',
-    tabPhases: 'The 10 phases',
-    tabScoring: 'Scoring',
-    tabSpecials: 'Special cards',
-    objectiveTitle: 'Objective',
-    objectiveBody:
-      'Complete all 10 phases in order. The player who finishes phase 10 with the lowest total score wins.',
-    turnTitle: 'Turn flow',
-    turnSteps: [
-      ['1. Draw', 'Draw from the deck or the visible discard pile.'],
-      ['2. Play', 'Lay down your phase and/or hit cards on table phases.'],
-      ['3. Discard', 'Discard one card to end your turn.'],
+    title: 'Rules — Mestre da Cartas',
+    tabPhase10: 'Phase 10',
+    tabTruco: 'Truco',
+    tabPoker: 'Poker',
+    tabTower: 'Tower Master',
+    towerComingSoon: 'This mode is still in development. The rules below are a preview of the planned game.',
+    phase10: {
+      tabHow: 'How to play',
+      tabPhases: 'The 10 phases',
+      tabScoring: 'Scoring',
+      tabSpecials: 'Special cards',
+      objectiveTitle: 'Objective',
+      objectiveBody:
+        'Complete all 10 phases in order. The player who finishes phase 10 with the lowest total score wins.',
+      turnTitle: 'Turn flow',
+      turnSteps: [
+        ['1. Draw', 'Draw from the deck or the visible discard pile.'],
+        ['2. Play', 'Lay down your phase and/or hit cards on table phases.'],
+        ['3. Discard', 'Discard one card to end your turn.'],
+      ],
+      advanceTitle: 'Phase advance',
+      advanceBody:
+        'Only players who lay down their phase advance — unless everyone lays down, then everyone advances.',
+      phasesHint: 'Set: same value. Run: consecutive values. Color: same color.',
+      scoringIntro:
+        'The round ends when someone discards their last card or when everyone lays down their phase.',
+      scoringCards: [
+        ['5', 'Cards 1–9'],
+        ['10', 'Cards 10–12'],
+        ['15', 'Skip'],
+        ['25', 'Wild'],
+      ],
+      wildTitle: 'Wild',
+      wildBody: 'Substitutes any number or color. Each group needs at least one natural card.',
+      wildTip: 'At least one natural card in each laid-down group.',
+      skipTitle: 'Skip',
+      skipBody: 'When discarding, choose an opponent to skip their next turn. Cannot be used in table groups.',
+    },
+    truco: [
+      {
+        title: 'Objective',
+        paragraphs: [
+          'Paulista Truco for 4 players in 2 teams (partners sit opposite each other).',
+          'The first team to reach 12 points wins the match.',
+        ],
+      },
+      {
+        title: 'Deck and deal',
+        paragraphs: [
+          '40-card Spanish deck (4, 5, 6, 7, jack, queen, king, ace, 2 and 3).',
+          'Each player receives 3 cards. Three tricks are played per hand.',
+        ],
+      },
+      {
+        title: 'Card strength',
+        paragraphs: [
+          'Manilhas (highest to lowest): 4 of clubs ♣, 7 of hearts ♥, ace of spades ♠, 7 of diamonds ♦.',
+          'Other cards: 3 > 2 > A > K > J > Q > 7 > 6 > 5 > 4.',
+          'Highest card wins the trick. A tied trick does not immediately decide the winner.',
+        ],
+      },
+      {
+        title: 'Hand scoring',
+        paragraphs: [
+          'Whoever wins 2 of 3 tricks wins the hand and scores points.',
+          'Normal hand = 1 point. Truco raises to 3, Seis to 6, Nove to 9, Doze to 12.',
+          'If the opposing team runs, the caller wins points at the previous level.',
+        ],
+      },
+      {
+        title: 'Calling Truco',
+        paragraphs: [
+          'On your turn, before playing a card, you may call Truco to raise the hand value.',
+          'The opposing team accepts (plays for the new value) or runs (folds the hand).',
+        ],
+      },
     ],
-    advanceTitle: 'Phase advance',
-    advanceBody:
-      'Only players who lay down their phase advance — unless everyone lays down, then everyone advances.',
-    phasesHint: 'Set: same value. Run: consecutive values. Color: same color.',
-    scoringIntro:
-      'The round ends when someone discards their last card or when everyone lays down their phase.',
-    scoringCards: [
-      ['5', 'Cards 1–9'],
-      ['10', 'Cards 10–12'],
-      ['15', 'Skip'],
-      ['25', 'Wild'],
+    poker: [
+      {
+        title: 'Objective',
+        paragraphs: [
+          'Texas Hold\'em: make the best 5-card hand using your 2 hole cards and the 5 community cards.',
+          'Win at showdown with the strongest hand, or when everyone else folds.',
+        ],
+      },
+      {
+        title: 'Players and chips',
+        paragraphs: [
+          '2 to 6 players. Everyone starts with chips.',
+          'Small blind and big blind are posted automatically before each hand.',
+        ],
+      },
+      {
+        title: 'Betting rounds',
+        paragraphs: [
+          'Preflop: each player receives 2 hole cards.',
+          'Flop: 3 community cards. Turn: +1 card. River: +1 card (5 total).',
+          'After each street, there is a betting round.',
+        ],
+      },
+      {
+        title: 'Actions',
+        paragraphs: [
+          'Fold: leave the hand.',
+          'Check: pass when no bet is facing you.',
+          'Call: match the current bet.',
+          'Raise: increase the bet. All-in: bet all remaining chips.',
+        ],
+      },
+      {
+        title: 'Hand ranking (high → low)',
+        paragraphs: [
+          'Royal flush, straight flush, four of a kind, full house, flush, straight, three of a kind, two pair, pair, high card.',
+          'At showdown, the best possible 5-card hand wins the pot.',
+        ],
+      },
     ],
-    wildTitle: 'Wild',
-    wildBody: 'Substitutes any number or color. Each group needs at least one natural card.',
-    wildTip: 'At least one natural card in each laid-down group.',
-    skipTitle: 'Skip',
-    skipBody: 'When discarding, choose an opponent to skip their next turn. Cannot be used in table groups.',
+    tower: [
+      {
+        title: 'Concept',
+        paragraphs: [
+          'Tower Master will be a strategic card-stacking game.',
+          'Players build towers card by card, balancing risk and reward.',
+        ],
+      },
+      {
+        title: 'Status',
+        paragraphs: ['Mode in development — coming soon to Mestre da Cartas.'],
+      },
+    ],
     close: 'Close',
   },
   lobby: {
