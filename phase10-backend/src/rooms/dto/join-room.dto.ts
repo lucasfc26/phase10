@@ -8,7 +8,7 @@ export class JoinRoomDto {
 
   @IsString()
   @MinLength(1)
-  @MaxLength(18)
+  @MaxLength(18, { message: 'O nome pode ter no máximo 18 caracteres.' })
   name!: string;
 
   @IsString()

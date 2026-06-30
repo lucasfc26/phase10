@@ -309,8 +309,8 @@ body {
 }
 
 @media (hover: hover) {
-  .hand-fan__card:hover:not(:disabled):not(.playing-card--selected) {
-    --fan-y: -20px;
+  .hand-fan--stack .hand-fan__card:hover:not(:disabled):not(.playing-card--selected) {
+    --fan-y: -12px;
   }
 }
 
@@ -396,6 +396,15 @@ body {
   font-size: 1rem;
 }
 
+.playing-card--back {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.playing-card--back > div {
+  border-radius: inherit;
+}
+
 .playing-card:disabled {
   cursor: default;
 }
@@ -442,3 +451,113 @@ body {
 .playing-card__pip--blue { color: var(--card-pip-blue); }
 .playing-card__pip--wild { color: var(--card-pip-wild); }
 .playing-card__pip--skip { color: var(--card-pip-skip); }
+
+/* Truco / Poker suit cards */
+.playing-card--suit {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.playing-card--suit-md {
+  width: 4rem;
+  height: 6rem;
+}
+
+.playing-card--suit-sm {
+  width: 3rem;
+  height: 4.5rem;
+}
+
+.suit-card__face-down {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-accent);
+  font-weight: 900;
+  font-size: 1.125rem;
+}
+
+.suit-card__corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+}
+
+.suit-card__corner--tl {
+  top: 0.45rem;
+  left: 0.45rem;
+}
+
+.suit-card__corner--br {
+  bottom: 0.45rem;
+  right: 0.45rem;
+  transform: rotate(180deg);
+}
+
+.playing-card--suit-sm .suit-card__corner--tl {
+  top: 0.3rem;
+  left: 0.3rem;
+}
+
+.playing-card--suit-sm .suit-card__corner--br {
+  bottom: 0.3rem;
+  right: 0.3rem;
+}
+
+.suit-card__rank {
+  font-size: 1.125rem;
+  letter-spacing: -0.02em;
+}
+
+.playing-card--suit-sm .suit-card__rank {
+  font-size: 0.9375rem;
+}
+
+.suit-card__pip {
+  font-size: 0.875rem;
+  margin-top: 0.1rem;
+}
+
+.playing-card--suit-sm .suit-card__pip {
+  font-size: 0.75rem;
+  margin-top: 0.05rem;
+}
+
+.suit-card__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 800;
+  font-size: 2.55rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.playing-card--suit-sm .suit-card__center {
+  font-size: 1.875rem;
+}
+
+.suit-card__suit--red {
+  color: #dc2626;
+}
+
+.suit-card__suit--black {
+  color: #374151;
+}
+
+[data-theme="dark"] .suit-card__suit--black {
+  color: #e2e8f0;
+}

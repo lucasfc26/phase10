@@ -1,3 +1,5 @@
+import type { CardGameId } from './games/types';
+
 export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild' | 'skip';
 
 export interface Card {
@@ -88,6 +90,7 @@ export interface GameRoom {
     customPhases: boolean;
     allowBots: boolean; // Option to allow bots or not
     roomPassword?: string;
+    cardGame?: CardGameId;
   };
 }
 

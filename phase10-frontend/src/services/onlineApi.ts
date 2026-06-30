@@ -48,7 +48,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(err.message || 'Erro na requisição');
+    const message = Array.isArray(err.message)
+      ? err.message.join(' ')
+      : err.message || 'Erro na requisição';
+    throw new Error(message);
   }
   return res.json();
 }

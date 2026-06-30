@@ -45,8 +45,26 @@ export function isCharacterAvatar(avatar: string): boolean {
   return avatar.startsWith("char:");
 }
 
+export function normalizeHex(hex: string): string {
+  const raw = hex.replace("#", "").trim().toLowerCase();
+  if (raw.length === 3) {
+    return `#${raw[0]}${raw[0]}${raw[1]}${raw[1]}${raw[2]}${raw[2]}`;
+  }
+  return `#${raw.padStart(6, "0").slice(0, 6)}`;
+}
+
+export function normalizeCharacterConfig(config: CharacterConfig): CharacterConfig {
+  return {
+    hairIndex: Math.max(0, Math.min(HAIR_COUNT - 1, config.hairIndex)),
+    faceIndex: Math.max(0, Math.min(FACE_COUNT - 1, config.faceIndex)),
+    hairColor: normalizeHex(config.hairColor),
+    skinColor: normalizeHex(config.skinColor),
+  };
+}
+
 export function encodeCharacterAvatar(config: CharacterConfig): string {
-  return `char:${config.hairIndex}:${config.faceIndex}:${config.hairColor.replace("#", "")}:${config.skinColor.replace("#", "")}`;
+  const normalized = normalizeCharacterConfig(config);
+  return `char:${normalized.hairIndex}:${normalized.faceIndex}:${normalized.hairColor.replace("#", "")}:${normalized.skinColor.replace("#", "")}`;
 }
 
 export function decodeCharacterAvatar(avatar: string): CharacterConfig | null {
@@ -56,12 +74,12 @@ export function decodeCharacterAvatar(avatar: string): CharacterConfig | null {
   const hairIndex = parseInt(parts[1], 10);
   const faceIndex = parseInt(parts[2], 10);
   if (Number.isNaN(hairIndex) || Number.isNaN(faceIndex)) return null;
-  return {
-    hairIndex: Math.max(0, Math.min(HAIR_COUNT - 1, hairIndex)),
-    faceIndex: Math.max(0, Math.min(FACE_COUNT - 1, faceIndex)),
+  return normalizeCharacterConfig({
+    hairIndex,
+    faceIndex,
     hairColor: `#${parts[3]}`,
     skinColor: `#${parts[4]}`,
-  };
+  });
 }
 
 export function avatarDisplayText(avatar: string): string {
@@ -69,14 +87,14 @@ export function avatarDisplayText(avatar: string): string {
 }
 
 export function randomCharacterConfig(): CharacterConfig {
-  return {
+  return normalizeCharacterConfig({
     hairIndex: Math.floor(Math.random() * HAIR_COUNT),
     faceIndex: Math.floor(Math.random() * FACE_COUNT),
     hairColor:
       HAIR_COLOR_PRESETS[Math.floor(Math.random() * HAIR_COLOR_PRESETS.length)],
     skinColor:
       SKIN_COLOR_PRESETS[Math.floor(Math.random() * SKIN_COLOR_PRESETS.length)],
-  };
+  });
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -161,12 +179,60 @@ function layerSize(img: HTMLImageElement): { w: number; h: number } {
 }
 
 const renderCache = new Map<string, string>();
+const RENDER_CACHE_INDEX_KEY = "phase10-avatar-render-index";
+const RENDER_CACHE_PREFIX = "phase10-avatar-render:";
+const MAX_PERSISTED_RENDERS = 36;
+
+function readRenderCacheIndex(): string[] {
+  try {
+    const raw = localStorage.getItem(RENDER_CACHE_INDEX_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRenderCacheIndex(keys: string[]) {
+  localStorage.setItem(RENDER_CACHE_INDEX_KEY, JSON.stringify(keys.slice(-MAX_PERSISTED_RENDERS)));
+}
+
+function getPersistedRender(key: string): string | null {
+  try {
+    return localStorage.getItem(RENDER_CACHE_PREFIX + key);
+  } catch {
+    return null;
+  }
+}
+
+function setPersistedRender(key: string, dataUrl: string) {
+  try {
+    localStorage.setItem(RENDER_CACHE_PREFIX + key, dataUrl);
+    const index = readRenderCacheIndex().filter((entry) => entry !== key);
+    index.push(key);
+    while (index.length > MAX_PERSISTED_RENDERS) {
+      const oldest = index.shift();
+      if (oldest) localStorage.removeItem(RENDER_CACHE_PREFIX + oldest);
+    }
+    writeRenderCacheIndex(index);
+  } catch {
+    // localStorage cheio ou indisponível — ignora persistência
+  }
+}
+
+export function preloadCharacterAssets(config: CharacterConfig): Promise<void> {
+  const normalized = normalizeCharacterConfig(config);
+  return Promise.all([
+    loadHairByIndex(normalized.hairIndex),
+    loadFaceByIndex(normalized.faceIndex),
+  ]).then(() => undefined);
+}
 
 export function characterCacheKey(
   config: CharacterConfig,
   size: number,
 ): string {
-  return `v4:${config.hairIndex}:${config.faceIndex}:${config.hairColor}:${config.skinColor}:${size}`;
+  const normalized = normalizeCharacterConfig(config);
+  return `v5:${normalized.hairIndex}:${normalized.faceIndex}:${normalized.hairColor}:${normalized.skinColor}:${size}`;
 }
 
 export async function renderCharacter(
@@ -174,13 +240,22 @@ export async function renderCharacter(
   size: number,
   backgroundColor: string | null = "#ffffff",
 ): Promise<string> {
-  const key = `${characterCacheKey(config, size)}:${backgroundColor ?? "transparent"}`;
-  const cached = renderCache.get(key);
-  if (cached) return cached;
+  const normalized = normalizeCharacterConfig(config);
+  const bgKey = backgroundColor ? normalizeHex(backgroundColor) : "transparent";
+  const key = `${characterCacheKey(normalized, size)}:${bgKey}`;
+
+  const memoryCached = renderCache.get(key);
+  if (memoryCached) return memoryCached;
+
+  const persisted = getPersistedRender(key);
+  if (persisted) {
+    renderCache.set(key, persisted);
+    return persisted;
+  }
 
   const [hairImg, faceImg] = await Promise.all([
-    loadHairByIndex(config.hairIndex),
-    loadFaceByIndex(config.faceIndex),
+    loadHairByIndex(normalized.hairIndex),
+    loadFaceByIndex(normalized.faceIndex),
   ]);
 
   const { w, h } = layerSize(hairImg);
@@ -193,8 +268,8 @@ export async function renderCharacter(
   offCtx.drawImage(hairImg, 0, 0, w, h);
 
   const headData = offCtx.getImageData(0, 0, w, h);
-  replaceColorInData(headData.data, DEFAULT_HAIR_COLOR, config.hairColor);
-  replaceColorInData(headData.data, DEFAULT_SKIN_COLOR, config.skinColor);
+  replaceColorInData(headData.data, DEFAULT_HAIR_COLOR, normalized.hairColor);
+  replaceColorInData(headData.data, DEFAULT_SKIN_COLOR, normalized.skinColor);
   offCtx.putImageData(headData, 0, 0);
 
   offCtx.drawImage(faceImg, 0, 0, w, h);
@@ -204,12 +279,13 @@ export async function renderCharacter(
   out.height = size;
   const ctx = out.getContext("2d")!;
   if (backgroundColor) {
-    ctx.fillStyle = backgroundColor;
+    ctx.fillStyle = bgKey;
     ctx.fillRect(0, 0, size, size);
   }
   ctx.drawImage(off, 0, 0, w, h, 0, 0, size, size);
 
   const dataUrl = out.toDataURL("image/png");
   renderCache.set(key, dataUrl);
+  setPersistedRender(key, dataUrl);
   return dataUrl;
 }
