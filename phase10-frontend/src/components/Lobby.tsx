@@ -424,7 +424,11 @@ export const Lobby: React.FC<LobbyProps> = ({ onStartGame }) => {
               <label className="block text-xs font-medium uppercase tracking-wide text-muted mb-2">
                 Crie seu Personagem
               </label>
-              <CharacterCreator value={characterConfig} onChange={setCharacterConfig} />
+              <CharacterCreator
+                value={characterConfig}
+                onChange={setCharacterConfig}
+                themeColor={selectedColor}
+              />
             </div>
 
             <div>

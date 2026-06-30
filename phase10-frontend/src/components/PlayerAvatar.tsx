@@ -37,14 +37,14 @@ export function PlayerAvatar({
     const config = decodeCharacterAvatar(avatar) ?? DEFAULT_CHARACTER;
     let cancelled = false;
 
-    renderCharacter(config, size, null).then((url) => {
+    renderCharacter(config, size, color).then((url) => {
       if (!cancelled) setSrc(url);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [avatar, size, showCharacter]);
+  }, [avatar, size, showCharacter, color]);
 
   if (isSystem) {
     const iconSize = Math.round(size * 0.55);

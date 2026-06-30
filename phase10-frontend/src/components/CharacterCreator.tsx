@@ -13,6 +13,7 @@ import {
 interface CharacterCreatorProps {
   value: CharacterConfig;
   onChange: (config: CharacterConfig) => void;
+  themeColor?: string;
 }
 
 const SELECT_BORDER = '#79d8f3';
@@ -43,18 +44,22 @@ function ColorSwatch({
   );
 }
 
-export const CharacterCreator: React.FC<CharacterCreatorProps> = ({ value, onChange }) => {
+export const CharacterCreator: React.FC<CharacterCreatorProps> = ({
+  value,
+  onChange,
+  themeColor = '#ffffff',
+}) => {
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    renderCharacter(value, 220).then((url) => {
+    renderCharacter(value, 220, themeColor).then((url) => {
       if (!cancelled) setPreviewSrc(url);
     });
     return () => {
       cancelled = true;
     };
-  }, [value]);
+  }, [value, themeColor]);
 
   const update = (patch: Partial<CharacterConfig>) => onChange({ ...value, ...patch });
 
@@ -78,7 +83,10 @@ export const CharacterCreator: React.FC<CharacterCreatorProps> = ({ value, onCha
           <ChevronLeft className="w-5 h-5" />
         </button>
 
-        <div className="w-[200px] h-[200px] bg-white rounded-lg flex items-center justify-center overflow-hidden border border-default/40">
+        <div
+          className="w-[200px] h-[200px] rounded-lg flex items-center justify-center overflow-hidden border border-default/40"
+          style={{ backgroundColor: themeColor }}
+        >
           {previewSrc ? (
             <img
               src={previewSrc}
