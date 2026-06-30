@@ -6,7 +6,13 @@ import {
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
 import { avatarDisplayText } from '../lib/characterAvatar';
-import { getHandFanLayout, getHandFanSpreadWidth, sortHandCards, type HandSortMode } from '../lib/handFan';
+import {
+  getHandFanLayout,
+  getHandFanSpreadWidth,
+  sortHandCards,
+  useCompactHandLayout,
+  type HandSortMode,
+} from '../lib/handFan';
 import { cardPipClass } from '../lib/cards';
 import { 
   Card, Player, GameRoom, LaidDownPhase, GameLog, ChatMessage, STANDARD_PHASES 
@@ -64,6 +70,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
   const clearCardSelection = () => setSelectedCards([]);
 
   const [handSortMode, setHandSortMode] = useState<HandSortMode | null>(null);
+  const compactHand = useCompactHandLayout();
 
   // Skip selector target modal
   const [skipCardPending, setSkipCardPending] = useState<Card | null>(null);
@@ -1960,14 +1967,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
           <div className="space-y-4">
             
             {/* Cards fan layout */}
-            <div className="hand-fan">
+            <div className={`hand-fan${compactHand ? ' hand-fan--stack' : ''}`}>
               {(() => {
                 const rawCards = myPlayer.cards.filter((c) => !c.id.startsWith('hidden-'));
                 const visibleCards = handSortMode
                   ? sortHandCards(rawCards, handSortMode)
                   : rawCards;
                 const total = visibleCards.length;
-                const fanWidth = getHandFanSpreadWidth(total);
+                const fanOptions = compactHand ? { mode: 'stack' as const } : undefined;
+                const fanWidth = getHandFanSpreadWidth(total, fanOptions);
                 return (
               <div
                 className="hand-fan__pivot"
@@ -1980,8 +1988,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                 const isW = card.type === 'wild';
                 const isS = card.type === 'skip';
                 const pipClass = cardPipClass(card.color);
-                const { translateX, rotate, zIndex } = getHandFanLayout(index, total);
-                const selectedLift = isSelected ? '-2.5rem' : '0px';
+                const { translateX, rotate, zIndex } = getHandFanLayout(index, total, fanOptions);
+                const selectedLift = isSelected ? '-2rem' : '0px';
 
                 return (
                   <button
@@ -1994,7 +2002,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ initialRoom, playerProfile
                       isInGroup1 || isInGroup2 ? 'playing-card--in-group' : ''
                     }`}
                     style={{
-                      zIndex: isSelected ? 200 : zIndex,
+                      zIndex,
                       ['--fan-x' as string]: `${translateX}px`,
                       ['--fan-rot' as string]: `${rotate}deg`,
                       ['--fan-y' as string]: selectedLift,

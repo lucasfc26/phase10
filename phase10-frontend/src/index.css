@@ -308,9 +308,32 @@ body {
   will-change: transform;
 }
 
-.hand-fan__card:hover:not(:disabled):not(.playing-card--selected) {
-  --fan-y: -20px;
-  z-index: 120 !important;
+@media (hover: hover) {
+  .hand-fan__card:hover:not(:disabled):not(.playing-card--selected) {
+    --fan-y: -20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hand-fan--stack {
+    --hand-card-w: 4.5rem;
+    --hand-card-h: 6.625rem;
+    min-height: 11rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .hand-fan--stack .hand-fan__pivot {
+    min-height: 8.5rem;
+  }
+
+  .hand-fan--stack .playing-card__value {
+    font-size: 1.75rem;
+  }
+
+  .hand-fan--stack .playing-card__icon-lg {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
 }
 
 .hand-fan .playing-card {
