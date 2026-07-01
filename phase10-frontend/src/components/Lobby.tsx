@@ -482,7 +482,18 @@ export const Lobby: React.FC<LobbyProps> = ({
       onGameState: (room) => {
         const cardGameId =
           (room.settings as { cardGame?: typeof cardGame }).cardGame ?? cardGame;
-        onStartGame({ cardGame: cardGameId, room, session: onlineSession } as ActiveGameState, profile);
+        const localLobbyPlayer = lobbyPlayers.find((p) => p.id === onlineSession.memberId);
+        onStartGame(
+          {
+            cardGame: cardGameId,
+            room,
+            session: onlineSession,
+            ...(cardGameId === "tower_master" && localLobbyPlayer?.towerCharacterClass
+              ? { preselectedTowerClass: localLobbyPlayer.towerCharacterClass }
+              : {}),
+          } as ActiveGameState,
+          profile,
+        );
       },
     });
   }, [step, gameMode, onlineSession?.sessionToken]);

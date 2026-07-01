@@ -76,7 +76,7 @@ export interface Player {
   towerLegendaryUsedThisRound?: boolean;
   towerCharacterClass?: TowerCharacterClass;
   towerClassAbilityUsedThisRound?: boolean;
-  towerBonusDrawNextRound?: number;
+  towerBonusDrawNextTurn?: number;
   towerCannotDraw?: boolean;
 }
 

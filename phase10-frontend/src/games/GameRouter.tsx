@@ -5,11 +5,17 @@ import type { PokerRoom } from './poker/types';
 import { TrucoBoard } from './truco/TrucoBoard';
 import type { TrucoRoom } from './truco/types';
 import type { CardGameId, GamePlayerProfile } from './types';
+import type { TowerCharacterClass } from '../types';
 import type { RoomSession } from '../services/onlineApi';
 
 export type ActiveGameState =
   | { cardGame: 'phase10'; room: GameRoom; session?: RoomSession | null }
-  | { cardGame: 'tower_master'; room: GameRoom; session?: RoomSession | null }
+  | {
+      cardGame: 'tower_master';
+      room: GameRoom;
+      session?: RoomSession | null;
+      preselectedTowerClass?: TowerCharacterClass;
+    }
   | { cardGame: 'truco'; room: TrucoRoom; session?: RoomSession | null }
   | { cardGame: 'poker'; room: PokerRoom; session?: RoomSession | null };
 
@@ -55,6 +61,9 @@ export function GameRouter({
       initialRoom={game.room}
       playerProfile={playerProfile}
       onlineSession={game.session ?? null}
+      preselectedTowerClass={
+        game.cardGame === 'tower_master' ? game.preselectedTowerClass : undefined
+      }
       onExit={onExit}
       initialSoundEnabled={initialSoundEnabled}
     />

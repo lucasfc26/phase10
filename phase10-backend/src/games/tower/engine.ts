@@ -45,6 +45,26 @@ function clonePlayers(players: Player[]): Player[] {
   return players.map((p) => ({ ...p, cards: [...p.cards] }));
 }
 
+/** Devolve cartas baixadas à mão antes de trocas de mão entre jogadores. */
+function returnLaidDownToHands(
+  players: Player[],
+  laidDownPhases: LaidDownPhase[],
+  playerIds?: string[],
+): LaidDownPhase[] {
+  const idSet = playerIds ? new Set(playerIds) : null;
+  laidDownPhases.forEach((layout) => {
+    if (idSet && !idSet.has(layout.playerId)) return;
+    const owner = players.find((p) => p.id === layout.playerId);
+    if (owner) {
+      owner.cards.push(...layout.groups.flat());
+      owner.hasLaidDownThisRound = false;
+    }
+  });
+  return idSet
+    ? laidDownPhases.filter((layout) => !idSet.has(layout.playerId))
+    : [];
+}
+
 export function prepareTowerRoundPlayers(gameRoom: GameRoom): GameRoom['players'] {
   return gameRoom.players.map((player) => ({
     ...player,
@@ -81,6 +101,26 @@ export function applyTowerTurnStart(
   active.energy = Math.min(6, (active.energy ?? 3) + 1);
   active.towerAttackImmune = false;
   active.towerAlchemistPassiveUsedThisTurn = false;
+  active.towerCannotLayDown = false;
+  active.towerCannotDraw = false;
+
+  const bonusDraw = active.towerBonusDrawNextTurn ?? 0;
+  if (bonusDraw > 0) {
+    let drawnCount = 0;
+    for (let i = 0; i < bonusDraw; i++) {
+      const drawn = drawFromPile(drawPile, discardPile);
+      if (drawn) {
+        active.cards.push(drawn);
+        drawnCount += 1;
+      }
+    }
+    active.towerBonusDrawNextTurn = 0;
+    if (drawnCount > 0) {
+      logs.push(
+        `${active.name} recebeu +${drawnCount} carta(s) extra no início do turno (efeito Guerreiro).`,
+      );
+    }
+  }
 
   if (active.towerCharacterClass === 'ladino' && Math.random() < 0.2) {
     const top =
@@ -288,17 +328,20 @@ export function applyTowerPower(
 
     case 'inversao':
       if (finalTarget) {
+        laidDownPhases = returnLaidDownToHands(players, laidDownPhases, [caster.id, finalTarget.id]);
         const casterHand = caster.cards;
         caster.cards = finalTarget.cards;
         finalTarget.cards = casterHand;
-        logs.push(`${caster.name} trocou a mão inteira com ${finalTarget.name}.`);
+        logs.push(
+          `${caster.name} trocou a mão inteira com ${finalTarget.name} (desafios baixados voltaram às mãos antes da troca).`,
+        );
       }
       break;
 
     case 'congelar':
       if (finalTarget) {
         finalTarget.towerCannotDraw = true;
-        logs.push(`${finalTarget.name} foi congelado: não pode comprar cartas neste turno.`);
+        logs.push(`${finalTarget.name} foi congelado: não pode comprar cartas até o próximo turno.`);
       }
       break;
 
@@ -315,7 +358,7 @@ export function applyTowerPower(
     case 'bloqueio':
       if (finalTarget) {
         finalTarget.towerCannotLayDown = true;
-        logs.push(`${finalTarget.name} não poderá baixar o desafio neste turno.`);
+        logs.push(`${finalTarget.name} não poderá baixar o desafio até o próximo turno.`);
       }
       break;
 
@@ -477,11 +520,14 @@ export function applyTowerPower(
     }
 
     case 'tempestade': {
+      laidDownPhases = returnLaidDownToHands(players, laidDownPhases);
       const hands = players.map((player) => player.cards);
       players.forEach((player, index) => {
         player.cards = hands[(index - 1 + hands.length) % hands.length];
       });
-      logs.push(`${caster.name} invocou Tempestade.`);
+      logs.push(
+        `${caster.name} invocou Tempestade: desafios baixados voltaram às mãos e todos passaram a mão para a esquerda.`,
+      );
       break;
     }
 
@@ -507,20 +553,34 @@ export function applyTowerPower(
     case 'roubo_supremo':
       if (finalTarget && finalTarget.cards.length > 0) {
         const amount = Math.floor(finalTarget.cards.length / 2);
+        let stolenCount = 0;
         for (let i = 0; i < amount; i++) {
           const stolenIndex = Math.floor(Math.random() * finalTarget.cards.length);
           const [stolen] = finalTarget.cards.splice(stolenIndex, 1);
-          if (stolen) caster.cards.push(stolen);
+          if (stolen) {
+            caster.cards.push(stolen);
+            stolenCount += 1;
+          }
         }
-        logs.push(`${caster.name} roubou metade da mão de ${finalTarget.name}.`);
+        if (stolenCount > 0) {
+          finalTarget.towerBonusDrawNextTurn =
+            (finalTarget.towerBonusDrawNextTurn ?? 0) + stolenCount;
+        }
+        logs.push(
+          `${caster.name} roubou ${stolenCount} carta(s) de ${finalTarget.name}; ${finalTarget.name} comprará a mesma quantidade no próximo turno.`,
+        );
       }
       break;
 
     case 'reset':
       players.forEach((player) => {
-        player.phase = Math.max(1, player.phase - 1);
+        if (player.phase > 1) {
+          player.phase -= 1;
+        }
       });
-      logs.push(`${caster.name} usou Reset: todos voltaram um desafio.`);
+      logs.push(
+        `${caster.name} usou Reset: jogadores acima do Desafio 1 voltaram um andar (quem estava no Desafio 1 permaneceu).`,
+      );
       break;
 
     case 'julgamento': {
@@ -647,7 +707,7 @@ export function applyClassAbility(
       const returned = laidCards.filter((c) => c.id !== destroyed.id);
       victim.cards.push(...returned);
       victim.hasLaidDownThisRound = false;
-      victim.towerBonusDrawNextRound = (victim.towerBonusDrawNextRound ?? 0) + 1;
+      victim.towerBonusDrawNextTurn = (victim.towerBonusDrawNextTurn ?? 0) + 1;
     }
     laidDownPhases = laidDownPhases.filter((layout) => layout.playerId !== victimId);
     discardPile.push(destroyed);

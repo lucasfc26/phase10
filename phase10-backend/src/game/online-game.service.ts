@@ -60,6 +60,14 @@ export class OnlineGameService {
     if (!parsed.currentTurnStartedAt) {
       parsed.currentTurnStartedAt = Date.now();
     }
+    if ('players' in parsed && Array.isArray((parsed as GameRoom).players)) {
+      for (const player of (parsed as GameRoom).players) {
+        const legacy = (player as { towerBonusDrawNextRound?: number }).towerBonusDrawNextRound;
+        if (legacy) {
+          player.towerBonusDrawNextTurn = (player.towerBonusDrawNextTurn ?? 0) + legacy;
+        }
+      }
+    }
     return parsed;
   }
 
@@ -414,11 +422,11 @@ export class OnlineGameService {
     let next: GameRoom = { ...gameRoom, players };
     const allReady = next.players.every((p) => p.towerCharacterClass);
     if (allReady) {
-      let next = this.startNewTowerRound({ ...gameRoom, status: 'playing' });
-      const turnStart = applyTowerTurnStart(next, next.currentTurnIndex);
-      next = turnStart.gameRoom;
+      const playingRoom = this.startNewTowerRound({ ...next, status: 'playing' });
+      const turnStart = applyTowerTurnStart(playingRoom, playingRoom.currentTurnIndex);
+      const started = turnStart.gameRoom;
       return {
-        state: next,
+        state: started,
         log: 'Todos escolheram a classe — partida iniciada!',
         logType: 'success',
         privateMessages: turnStart.privateMessages,
@@ -440,16 +448,13 @@ export class OnlineGameService {
     const preparedPlayers = prepareTowerRoundPlayers(gameRoom);
     const updatedPlayers = preparedPlayers.map((player) => {
       const hand: GameRoom['drawPile'] = [];
-      const bonus = player.towerBonusDrawNextRound ?? 0;
-      const totalCards = handSize + bonus;
-      for (let i = 0; i < totalCards; i++) {
+      for (let i = 0; i < handSize; i++) {
         const card = shuffled.pop();
         if (card) hand.push(card);
       }
       return {
         ...player,
         cards: hand.sort((a, b) => a.value - b.value),
-        towerBonusDrawNextRound: 0,
       };
     });
 

@@ -46,6 +46,7 @@ interface GameBoardProps {
   initialRoom: GameRoom;
   playerProfile: { name: string; avatar: string; color: string };
   onlineSession?: RoomSession | null;
+  preselectedTowerClass?: TowerCharacterClass;
   onExit: () => void;
   initialSoundEnabled?: boolean;
 }
@@ -122,6 +123,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   initialRoom,
   playerProfile,
   onlineSession,
+  preselectedTowerClass,
   onExit,
   initialSoundEnabled = true,
 }) => {
@@ -413,16 +415,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     lastTowerPowerPlayedRef.current = null;
     setTowerLegendarySelected(false);
     setTowerClassSelected(false);
-
-    currentRoom.players.forEach((player) => {
-      const bonus = player.towerBonusDrawNextRound ?? 0;
-      if (bonus > 0) {
-        addLog(
-          `${player.name} recebe +${bonus} carta(s) extra nesta rodada (efeito Guerreiro).`,
-          'info',
-        );
-      }
-    });
     
     // Create new clean deck
     const freshDeck = currentRoom.settings.cardGame === 'tower_master'
@@ -434,8 +426,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     const handSize = currentRoom.settings.cardGame === 'tower_master' ? 12 : 10;
     const updatedPlayers = currentRoom.players.map((player) => {
       const hand: Card[] = [];
-      const totalCards = handSize + (player.towerBonusDrawNextRound ?? 0);
-      for (let i = 0; i < totalCards; i++) {
+      for (let i = 0; i < handSize; i++) {
         const card = shuffled.pop();
         if (card) hand.push(card);
       }
@@ -457,7 +448,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           : player.towerLegendaryId,
         towerLegendaryUsedThisRound: false,
         towerClassAbilityUsedThisRound: false,
-        towerBonusDrawNextRound: 0,
       };
     });
 
@@ -597,6 +587,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     );
   };
 
+  const lobbyClassAutoSentRef = useRef(false);
+  useEffect(() => {
+    if (!isOnline || !isTowerMaster || room.status !== 'character_select') return;
+    if (!preselectedTowerClass || lobbyClassAutoSentRef.current) return;
+    const me = room.players.find((p) => p.id === onlineSession?.memberId);
+    if (!me || me.towerCharacterClass || me.isBot) return;
+    lobbyClassAutoSentRef.current = true;
+    sendOnlineAction({ type: 'select_character', classId: preselectedTowerClass });
+  }, [
+    isOnline,
+    isTowerMaster,
+    room.status,
+    room.players,
+    preselectedTowerClass,
+    onlineSession?.memberId,
+  ]);
+
   // ----------------------------------------------------
   // GETTERS & HELPERS
   // ----------------------------------------------------
@@ -691,6 +698,27 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       const nextEnergy = Math.min(6, (active.energy ?? 3) + 1);
       active.energy = nextEnergy;
       active.towerAttackImmune = false;
+      active.towerCannotLayDown = false;
+      active.towerCannotDraw = false;
+
+      const bonusDraw = active.towerBonusDrawNextTurn ?? 0;
+      if (bonusDraw > 0) {
+        let drawnCount = 0;
+        for (let i = 0; i < bonusDraw; i++) {
+          const drawn = drawFromPile(drawPile, discardPile);
+          if (drawn) {
+            active.cards.push(drawn);
+            drawnCount += 1;
+          }
+        }
+        active.towerBonusDrawNextTurn = 0;
+        if (drawnCount > 0) {
+          addLog(
+            `${active.name} recebeu +${drawnCount} carta(s) extra no início do turno (efeito Guerreiro).`,
+            'info',
+          );
+        }
+      }
 
       if (active.towerCharacterClass === 'ladino' && Math.random() < 0.2) {
         const top =
@@ -800,6 +828,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const cardMatchesTowerColor = (handCard: Card, color: Card['color']): boolean =>
     handCard.type === 'number' && handCard.color === color;
+
+  const returnLaidDownToHands = (
+    players: Player[],
+    phases: LaidDownPhase[],
+    playerIds?: string[],
+  ): LaidDownPhase[] => {
+    const idSet = playerIds ? new Set(playerIds) : null;
+    phases.forEach((layout) => {
+      if (idSet && !idSet.has(layout.playerId)) return;
+      const owner = players.find((p) => p.id === layout.playerId);
+      if (owner) {
+        owner.cards.push(...layout.groups.flat());
+        owner.hasLaidDownThisRound = false;
+      }
+    });
+    return idSet ? phases.filter((layout) => !idSet.has(layout.playerId)) : [];
+  };
 
   const applyTowerPower = (
     card: Card,
@@ -936,17 +981,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
         case 'inversao':
           if (finalTarget) {
+            laidDownPhases = returnLaidDownToHands(players, laidDownPhases, [caster.id, finalTarget.id]);
             const casterHand = caster.cards;
             caster.cards = finalTarget.cards;
             finalTarget.cards = casterHand;
-            addLog(`${caster.name} trocou a mão inteira com ${finalTarget.name}.`, 'warning');
+            addLog(
+              `${caster.name} trocou a mão inteira com ${finalTarget.name} (desafios baixados voltaram às mãos antes da troca).`,
+              'warning',
+            );
           }
           break;
 
         case 'congelar':
           if (finalTarget) {
             finalTarget.towerCannotDraw = true;
-            addLog(`${finalTarget.name} foi congelado: não pode comprar cartas neste turno.`, 'warning');
+            addLog(`${finalTarget.name} foi congelado: não pode comprar cartas até o próximo turno.`, 'warning');
           }
           break;
 
@@ -963,7 +1012,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         case 'bloqueio':
           if (finalTarget) {
             finalTarget.towerCannotLayDown = true;
-            addLog(`${finalTarget.name} não poderá baixar ${floorWordLower} neste turno.`, 'warning');
+            addLog(`${finalTarget.name} não poderá baixar ${floorWordLower} até o próximo turno.`, 'warning');
           }
           break;
 
@@ -1119,11 +1168,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         }
 
         case 'tempestade': {
+          laidDownPhases = returnLaidDownToHands(players, laidDownPhases);
           const hands = players.map((player) => player.cards);
           players.forEach((player, index) => {
             player.cards = hands[(index - 1 + hands.length) % hands.length];
           });
-          addLog(`${caster.name} invocou Tempestade: todos passaram a mão para a esquerda.`, 'warning');
+          addLog(
+            `${caster.name} invocou Tempestade: desafios baixados voltaram às mãos e todos passaram a mão para a esquerda.`,
+            'warning',
+          );
           break;
         }
 
@@ -1149,20 +1202,36 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         case 'roubo_supremo':
           if (finalTarget && finalTarget.cards.length > 0) {
             const amount = Math.floor(finalTarget.cards.length / 2);
+            let stolenCount = 0;
             for (let i = 0; i < amount; i++) {
               const stolenIndex = Math.floor(Math.random() * finalTarget.cards.length);
               const [stolen] = finalTarget.cards.splice(stolenIndex, 1);
-              caster.cards.push(stolen);
+              if (stolen) {
+                caster.cards.push(stolen);
+                stolenCount += 1;
+              }
             }
-            addLog(`${caster.name} roubou metade da mão de ${finalTarget.name}.`, 'warning');
+            if (stolenCount > 0) {
+              finalTarget.towerBonusDrawNextTurn =
+                (finalTarget.towerBonusDrawNextTurn ?? 0) + stolenCount;
+            }
+            addLog(
+              `${caster.name} roubou ${stolenCount} carta(s) de ${finalTarget.name}; ${finalTarget.name} comprará a mesma quantidade no próximo turno.`,
+              'warning',
+            );
           }
           break;
 
         case 'reset':
           players.forEach((player) => {
-            player.phase = Math.max(1, player.phase - 1);
+            if (player.phase > 1) {
+              player.phase -= 1;
+            }
           });
-          addLog(`${caster.name} usou Reset: todos voltaram um desafio.`, 'warning');
+          addLog(
+            `${caster.name} usou Reset: jogadores acima do Desafio 1 voltaram um andar (quem estava no Desafio 1 permaneceu).`,
+            'warning',
+          );
           break;
 
         case 'julgamento': {
@@ -1472,7 +1541,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           const returned = fullLayout.groups.flat().filter((card) => card.id !== destroyed.id);
           victim.cards.push(...returned);
           victim.hasLaidDownThisRound = false;
-          victim.towerBonusDrawNextRound = (victim.towerBonusDrawNextRound ?? 0) + 1;
+          victim.towerBonusDrawNextTurn = (victim.towerBonusDrawNextTurn ?? 0) + 1;
         }
 
         const laidDownPhases = prev.laidDownPhases.filter((layout) => layout.playerId !== victimId);
@@ -1482,7 +1551,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           `${myPlayer.name} (Guerreiro) destruiu ${describeCard(destroyed)} de ${victimName}: desafio baixado voltou para a mão.`,
           'warning',
         );
-        addLog(`${victimName} receberá +1 carta no início da próxima rodada.`, 'info');
+        addLog(`${victimName} receberá +1 carta no próximo turno.`, 'info');
         return { ...prev, discardPile, laidDownPhases, players };
       });
       setTowerClassSelected(false);

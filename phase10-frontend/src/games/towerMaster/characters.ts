@@ -11,7 +11,7 @@ export const TOWER_CHARACTER_CLASSES = [
     name: 'Guerreiro',
     imageSrc: '/Cards/personagens/guerreiro.png',
     passive: '15% de chance por turno de destruir uma carta aleatória de um adversário; ele compra outra do monte.',
-    exclusive: 'Destrói uma carta baixada aleatória, devolve o desafio à mão do alvo e ele ganha +1 carta na próxima rodada (1× por rodada).',
+    exclusive: 'Destrói uma carta baixada aleatória, devolve o desafio à mão do alvo e ele ganha +1 carta no próximo turno (1× por rodada).',
   },
   {
     id: 'ladino',
