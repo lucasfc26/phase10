@@ -33,6 +33,9 @@ export const zh: Translations = {
     darkMode: '深色模式',
     darkOn: '开启',
     darkOff: '关闭',
+    cardFaceStyle: '卡牌背景',
+    cardFaceArt: '自定义',
+    cardFaceMono: '单色',
     close: '关闭',
   },
   rules: {

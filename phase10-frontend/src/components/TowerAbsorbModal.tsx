@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { BatteryCharging, Check, X } from 'lucide-react';
 import type { Card } from '../types';
-import { TOWER_CARD_CATEGORY_LABELS, resolveTowerCardImageSrc } from '../lib/cards';
+import { TOWER_CARD_CATEGORY_LABELS, getPlayingCardShellClass } from '../lib/cards';
+import { TowerPowerCardFace } from './PlayingCardFace';
 import {
   ABSORBABLE_POWER_CATEGORIES,
   absorbEnergyGain,
@@ -24,14 +25,11 @@ function AbsorbCardButton({
   selected: boolean;
   onToggle: () => void;
 }) {
-  const category = card.powerCategory ?? 'attack';
-  const imageSrc = resolveTowerCardImageSrc(card);
-
   return (
     <button
       type="button"
       onClick={onToggle}
-      className={`playing-card playing-card--prompt-discard text-left playing-card--tower playing-card--tower-${category} relative ${
+      className={`playing-card playing-card--prompt-discard text-left ${getPlayingCardShellClass(card)} relative ${
         selected ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface' : ''
       }`}
       aria-pressed={selected}
@@ -41,12 +39,7 @@ function AbsorbCardButton({
           <Check className="w-3 h-3" />
         </span>
       )}
-      <div className="h-full flex flex-col justify-between">
-        <div className="playing-card__power-art">
-          {imageSrc && <img src={imageSrc} alt="" draggable={false} />}
-        </div>
-        <div className="playing-card__power-name">{card.powerName}</div>
-      </div>
+      <TowerPowerCardFace card={card} />
     </button>
   );
 }

@@ -1,7 +1,8 @@
-import { X, Volume2, VolumeX, Moon, Sun, Globe } from 'lucide-react';
+import { X, Volume2, VolumeX, Moon, Sun, Globe, Layers } from 'lucide-react';
 import { useI18n, type Locale } from '../lib/i18n';
 import { LOCALE_LABELS } from '../lib/settings';
 import type { Theme } from '../lib/theme';
+import type { CardFaceStyle } from '../lib/cardFace';
 
 const LOCALES: Locale[] = ['pt', 'en', 'fr', 'es', 'zh'];
 
@@ -14,6 +15,8 @@ type SettingsModalProps = {
   onSoundChange: (enabled: boolean) => void;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
+  cardFaceStyle: CardFaceStyle;
+  onCardFaceStyleChange: (style: CardFaceStyle) => void;
 };
 
 export function SettingsModal({
@@ -25,6 +28,8 @@ export function SettingsModal({
   onSoundChange,
   theme,
   onThemeChange,
+  cardFaceStyle,
+  onCardFaceStyleChange,
 }: SettingsModalProps) {
   const { t } = useI18n();
 
@@ -109,6 +114,24 @@ export function SettingsModal({
               }`}
             >
               {theme === 'dark' ? t.settings.darkOn : t.settings.darkOff}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-secondary">
+              <Layers className="w-4 h-4 text-accent" />
+              {t.settings.cardFaceStyle}
+            </div>
+            <button
+              type="button"
+              onClick={() => onCardFaceStyleChange(cardFaceStyle === 'art' ? 'mono' : 'art')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                cardFaceStyle === 'art'
+                  ? 'bg-accent-soft border-accent text-accent'
+                  : 'bg-surface-muted border-default text-muted'
+              }`}
+            >
+              {cardFaceStyle === 'art' ? t.settings.cardFaceArt : t.settings.cardFaceMono}
             </button>
           </div>
         </div>

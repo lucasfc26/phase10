@@ -13,7 +13,11 @@ import {
   useCompactHandLayout,
   type HandSortMode,
 } from '../lib/handFan';
-import { cardPipClass, isTowerPowerCard, towerPowerCategoryLabel, resolveTowerCardImageSrc } from '../lib/cards';
+import { cardPipClass, isTowerPowerCard, towerPowerCategoryLabel, resolveTowerCardImageSrc, getPlayingCardShellClass } from '../lib/cards';
+import {
+  StandardPlayingCardFace,
+  TowerPowerCardFace,
+} from './PlayingCardFace';
 import {
   getCardDisplayInfo,
   getLegendaryDisplayInfo,
@@ -55,44 +59,10 @@ interface GameBoardProps {
 
 function TowerInspectedCardPreview({ card }: { card: Card }) {
   const isPower = isTowerPowerCard(card);
-  const powerCategory = card.powerCategory ?? 'attack';
-  const isW = card.type === 'wild';
-  const isS = card.type === 'skip';
-  const pipClass = cardPipClass(card.color);
-
-  if (isPower) {
-    const imageSrc = resolveTowerCardImageSrc(card);
-    return (
-      <div className={`playing-card playing-card--tower playing-card--tower-${powerCategory} tower-inspected-card`}>
-        <div className="playing-card__power-art">
-          {imageSrc && <img src={imageSrc} alt="" draggable={false} />}
-        </div>
-        <div className="playing-card__power-name">{card.powerName}</div>
-      </div>
-    );
-  }
 
   return (
-    <div className={`playing-card tower-inspected-card text-left ${isW ? 'playing-card--wild' : isS ? 'playing-card--skip' : ''}`}>
-      <div className="h-full flex flex-col justify-between">
-        <div className={`playing-card__pip ${pipClass}`}>
-          {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
-        </div>
-        <div className="playing-card__center text-center flex items-center justify-center">
-          {isW ? (
-            <Wand2 className="playing-card__icon-lg" />
-          ) : isS ? (
-            <Ban className="playing-card__icon-lg" />
-          ) : (
-            <span className={`playing-card__value ${pipClass}`}>{card.value}</span>
-          )}
-        </div>
-        <div className="flex justify-end">
-          <span className={`playing-card__pip rotate-180 flex justify-end ${pipClass}`}>
-            {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
-          </span>
-        </div>
-      </div>
+    <div className={`playing-card tower-inspected-card text-left ${getPlayingCardShellClass(card)}`}>
+      {isPower ? <TowerPowerCardFace card={card} /> : <StandardPlayingCardFace card={card} />}
     </div>
   );
 }
@@ -3162,65 +3132,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   (() => {
                     const topDiscard = room.discardPile[room.discardPile.length - 1];
                     const isSkip = topDiscard.type === 'skip';
-                    const isWild = topDiscard.type === 'wild';
                     const isPower = isTowerPowerCard(topDiscard);
-                    const powerCategory = topDiscard.powerCategory ?? 'attack';
 
                     return (
                       <button
                         onClick={() => handleDrawCard('discard')}
                         disabled={!isMyTurn || turnState !== 'drawing' || isSkip || isActionPending}
-                        className={`playing-card playing-card--discard flex flex-col justify-between text-left transition-all ${
-                          isPower
-                            ? `playing-card--tower playing-card--tower-${powerCategory}`
-                            : isWild
-                              ? 'playing-card--wild'
-                              : isSkip
-                                ? 'playing-card--skip'
-                                : ''
-                        } ${
+                        className={`playing-card playing-card--discard flex flex-col justify-between text-left transition-all ${getPlayingCardShellClass(topDiscard)} ${
                           isMyTurn && turnState === 'drawing' && !isSkip && !isActionPending
                             ? 'playing-card--selected border-success hover:scale-105 active:scale-95 cursor-pointer'
                             : 'cursor-not-allowed opacity-80'
                         }`}
                       >
                         {isPower ? (
-                          <>
-                            <div className="playing-card__power-header">
-                              <span>{towerPowerCategoryLabel(topDiscard)}</span>
-                              <span>{topDiscard.powerCost ?? 0}E</span>
-                            </div>
-
-                            <div className="playing-card__power-art">
-                              <img src={resolveTowerCardImageSrc(topDiscard) ?? ''} alt="" draggable={false} />
-                            </div>
-
-                            <div className="playing-card__power-name">
-                              {topDiscard.powerName}
-                            </div>
-                          </>
+                          <TowerPowerCardFace card={topDiscard} />
                         ) : (
-                          <>
-                            <div className={`playing-card__pip ${cardPipClass(topDiscard.color)}`}>
-                              {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
-                            </div>
-
-                            <div className="playing-card__center text-center flex items-center justify-center">
-                              {isWild ? (
-                                <Wand2 className="playing-card__icon-lg" />
-                              ) : isSkip ? (
-                                <Ban className="playing-card__icon-lg" />
-                              ) : (
-                                <span className={`playing-card__value ${cardPipClass(topDiscard.color)}`}>
-                                  {topDiscard.value}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className={`playing-card__pip rotate-180 flex justify-end ${cardPipClass(topDiscard.color)}`}>
-                              {isWild ? <Wand2 className="playing-card__icon-sm" /> : isSkip ? <Ban className="playing-card__icon-sm" /> : topDiscard.value}
-                            </div>
-                          </>
+                          <StandardPlayingCardFace card={topDiscard} centerSize="discard" />
                         )}
                       </button>
                     );
@@ -3757,11 +3684,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 const isSelected = selectedCards.some((c) => c.id === card.id);
                 const isInGroup1 = buildGroup1.some(c => c.id === card.id);
                 const isInGroup2 = buildGroup2.some(c => c.id === card.id);
-                const isW = card.type === 'wild';
-                const isS = card.type === 'skip';
                 const isPower = isTowerPowerCard(card);
-                const powerCategory = card.powerCategory ?? 'attack';
-                const pipClass = cardPipClass(card.color);
                 const { translateX, rotate, zIndex } = getHandFanLayout(index, total, fanOptions);
                 const selectedDirection = index < (total - 1) / 2 ? -1 : 1;
                 const selectedSpreadX = !compactHand && isSelected ? selectedDirection * 18 : 0;
@@ -3775,15 +3698,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     key={card.id}
                     disabled={!towerHandPick && !isMyTurn}
                     onClick={() => handleHandCardClick(card)}
-                    className={`hand-fan__card playing-card text-left ${
-                      isPower
-                        ? `playing-card--tower playing-card--tower-${powerCategory}`
-                        : isW
-                          ? 'playing-card--wild'
-                          : isS
-                            ? 'playing-card--skip'
-                            : ''
-                    } ${isSelected ? 'playing-card--selected' : ''} ${
+                    className={`hand-fan__card playing-card text-left ${getPlayingCardShellClass(card)} ${isSelected ? 'playing-card--selected' : ''} ${
                       isInGroup1 || isInGroup2 ? 'playing-card--in-group' : ''
                     } ${isHandPickEligible ? 'playing-card--hand-pick' : ''} ${
                       isHandPickBlocked ? 'playing-card--hand-pick-blocked' : ''
@@ -3796,52 +3711,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     }}
                   >
                     {isPower ? (
-                      <div className="h-full flex flex-col justify-between">
-                        <div className="playing-card__power-header">
-                          <span>{towerPowerCategoryLabel(card)}</span>
-                          <span>{card.powerCost ?? 0}E</span>
-                        </div>
-
-                        <div className="playing-card__power-art">
-                          <img src={resolveTowerCardImageSrc(card) ?? ''} alt="" draggable={false} />
-                        </div>
-
-                        <div className="playing-card__power-name">
-                          {card.powerName}
-                        </div>
-                      </div>
+                      <TowerPowerCardFace card={card} />
                     ) : (
-                      <div className="h-full flex flex-col justify-between">
-                        <div className={`playing-card__pip ${pipClass}`}>
-                          {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
-                        </div>
-
-                        <div className="playing-card__center text-center flex items-center justify-center">
-                          {isW ? (
-                            <Wand2 className="playing-card__icon-lg" />
-                          ) : isS ? (
-                            <Ban className="playing-card__icon-lg" />
-                          ) : (
-                            <span className={`playing-card__value ${pipClass}`}>
-                              {card.value}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="w-full flex justify-between items-end">
-                          {isInGroup1 && (
-                            <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G1</span>
-                          )}
-                          {isInGroup2 && (
-                            <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G2</span>
-                          )}
-                          {!isInGroup1 && !isInGroup2 && <span />}
-
-                          <span className={`playing-card__pip rotate-180 flex justify-end ${pipClass}`}>
-                            {isW ? <Wand2 className="playing-card__icon-sm" /> : isS ? <Ban className="playing-card__icon-sm" /> : card.value}
-                          </span>
-                        </div>
-                      </div>
+                      <StandardPlayingCardFace
+                        card={card}
+                        bottomExtra={
+                          <>
+                            {isInGroup1 && (
+                              <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G1</span>
+                            )}
+                            {isInGroup2 && (
+                              <span className="text-[10px] bg-accent-soft/40 border border-accent/50 text-accent px-1 rounded uppercase font-bold">G2</span>
+                            )}
+                            {!isInGroup1 && !isInGroup2 && <span />}
+                          </>
+                        }
+                      />
                     )}
                   </button>
                 );

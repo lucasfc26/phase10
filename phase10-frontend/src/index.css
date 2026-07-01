@@ -443,6 +443,76 @@ body {
   color: #fff1f2;
 }
 
+.playing-card--number {
+  background: var(--card-face-bg);
+  border-color: var(--card-face-border);
+  color: var(--text-primary);
+}
+
+[data-card-face='art'] .playing-card--number,
+[data-card-face='art'] .playing-card--wild,
+[data-card-face='art'] .playing-card--skip {
+  background: url('/Cards/CartaNumerica.png') center / cover no-repeat;
+  border-color: color-mix(in srgb, var(--tower-gold) 42%, var(--card-face-border));
+  color: var(--text-primary);
+}
+
+[data-card-face='art'] .playing-card--tower {
+  background: url('/Cards/CartasGeral.png') center / cover no-repeat;
+  border-color: color-mix(in srgb, var(--tower-gold) 38%, var(--border));
+}
+
+[data-card-face='art'] .playing-card--tower-attack,
+[data-card-face='art'] .playing-card--tower-defense,
+[data-card-face='art'] .playing-card--tower-manipulation,
+[data-card-face='art'] .playing-card--tower-chaos,
+[data-card-face='art'] .playing-card--tower-epic,
+[data-card-face='art'] .playing-card--tower-legendary {
+  --tower-accent-soft: transparent;
+}
+
+.playing-card__special-icon {
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+
+.playing-card__special-icon--sm {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.playing-card__special-icon--lg {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.playing-card__special-icon--discard {
+  width: 3.25rem;
+  height: 3.25rem;
+}
+
+.hand-fan .playing-card__special-icon--sm {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.hand-fan .playing-card__special-icon--lg {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.playing-card--discard .playing-card__special-icon--sm {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.playing-card--discard .playing-card__special-icon--discard {
+  width: 3.75rem;
+  height: 3.75rem;
+}
+
 .playing-card--tower {
   --tower-accent: #a855f7;
   --tower-accent-soft: rgba(168, 85, 247, 0.22);

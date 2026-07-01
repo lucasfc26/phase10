@@ -2,7 +2,8 @@ import React from 'react';
 import { Ban, Target, Palette, Layers, X } from 'lucide-react';
 import { Card, Player } from '../types';
 import { PlayerAvatar } from './PlayerAvatar';
-import { cardPipClass, isTowerPowerCard } from '../lib/cards';
+import { getPlayingCardShellClass } from '../lib/cards';
+import { StandardPlayingCardFace, TowerPowerCardFace } from './PlayingCardFace';
 
 export type TowerPromptState =
   | { kind: 'player'; title: string; subtitle?: string; players: Player[]; floorLabel: (n: number) => string }
@@ -25,41 +26,18 @@ const COLOR_OPTIONS: Array<{ id: Card['color']; label: string; dotClass: string 
 ];
 
 function DiscardCardButton({ card, onClick }: { card: Card; onClick: () => void }) {
-  const isPower = isTowerPowerCard(card);
-  const pipClass = cardPipClass(card.color);
+  const isPower = card.type === 'power';
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`playing-card playing-card--prompt-discard text-left ${
-        isPower
-          ? `playing-card--tower playing-card--tower-${card.powerCategory ?? 'attack'}`
-          : card.type === 'wild'
-            ? 'playing-card--wild'
-            : card.type === 'skip'
-              ? 'playing-card--skip'
-              : ''
-      }`}
+      className={`playing-card playing-card--prompt-discard text-left ${getPlayingCardShellClass(card)}`}
     >
       {isPower ? (
-        <div className="h-full flex flex-col justify-between">
-          <div className="playing-card__power-art">
-            <img src={card.imageSrc} alt="" draggable={false} />
-          </div>
-          <div className="playing-card__power-name">{card.powerName}</div>
-        </div>
+        <TowerPowerCardFace card={card} />
       ) : (
-        <div className="h-full flex flex-col justify-between">
-          <div className={`playing-card__pip ${pipClass}`}>
-            {card.type === 'wild' ? '★' : card.type === 'skip' ? '⛔' : card.value}
-          </div>
-          <div className="playing-card__center flex items-center justify-center">
-            <span className={`playing-card__value ${pipClass}`}>
-              {card.type === 'wild' ? '★' : card.type === 'skip' ? '⛔' : card.value}
-            </span>
-          </div>
-        </div>
+        <StandardPlayingCardFace card={card} centerSize="discard" />
       )}
     </button>
   );

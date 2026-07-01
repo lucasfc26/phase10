@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, X } from 'lucide-react';
 import type { Card } from '../types';
-import { cardPipClass, isTowerPowerCard, resolveTowerCardImageSrc } from '../lib/cards';
+import { getPlayingCardShellClass } from '../lib/cards';
+import { StandardPlayingCardFace, TowerPowerCardFace } from './PlayingCardFace';
 
 export type TowerRevealState = {
   title: string;
@@ -15,35 +16,15 @@ interface TowerRevealModalProps {
 }
 
 function RevealCardPreview({ card }: { card: Card }) {
-  const imageSrc = resolveTowerCardImageSrc(card);
-  const isPower = isTowerPowerCard(card);
-  const pipClass = cardPipClass(card.color);
-
-  if (isPower && imageSrc) {
-    return (
-      <div className={`playing-card playing-card--prompt-discard playing-card--tower playing-card--tower-${card.powerCategory ?? 'attack'}`}>
-        <div className="h-full flex flex-col justify-between">
-          <div className="playing-card__power-art">
-            <img src={imageSrc} alt="" draggable={false} />
-          </div>
-          <div className="playing-card__power-name">{card.powerName}</div>
-        </div>
-      </div>
-    );
-  }
+  const isPower = card.type === 'power';
 
   return (
-    <div className={`playing-card playing-card--prompt-discard text-left ${card.type === 'wild' ? 'playing-card--wild' : card.type === 'skip' ? 'playing-card--skip' : ''}`}>
-      <div className="h-full flex flex-col justify-between">
-        <div className={`playing-card__pip ${pipClass}`}>
-          {card.type === 'wild' ? '★' : card.type === 'skip' ? '⛔' : card.value}
-        </div>
-        <div className="playing-card__center flex items-center justify-center">
-          <span className={`playing-card__value ${pipClass}`}>
-            {card.type === 'wild' ? '★' : card.type === 'skip' ? '⛔' : card.value}
-          </span>
-        </div>
-      </div>
+    <div className={`playing-card playing-card--prompt-discard text-left ${getPlayingCardShellClass(card)}`}>
+      {isPower ? (
+        <TowerPowerCardFace card={card} />
+      ) : (
+        <StandardPlayingCardFace card={card} centerSize="discard" />
+      )}
     </div>
   );
 }

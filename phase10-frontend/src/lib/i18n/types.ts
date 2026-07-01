@@ -63,6 +63,9 @@ export type Translations = {
     darkMode: string;
     darkOn: string;
     darkOff: string;
+    cardFaceStyle: string;
+    cardFaceArt: string;
+    cardFaceMono: string;
     close: string;
   };
   rules: {

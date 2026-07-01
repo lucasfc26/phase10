@@ -9,6 +9,7 @@ import { CookieConsent } from './components/CookieConsent';
 import { RoomSession } from './services/onlineApi';
 import { emitRoomLeave } from './services/onlineSocket';
 import { applyTheme, type Theme } from './lib/theme';
+import { applyCardFaceStyle, getStoredCardFaceStyle, type CardFaceStyle } from './lib/cardFace';
 import { I18nProvider, type Locale } from './lib/i18n';
 import {
   getStoredLocale,
@@ -35,6 +36,7 @@ type AppView = 'home' | 'lobby';
 
 function App({ initialTheme }: AppProps) {
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [cardFaceStyle, setCardFaceStyle] = useState<CardFaceStyle>(() => getStoredCardFaceStyle() ?? 'mono');
   const [locale, setLocale] = useState<Locale>(() => getStoredLocale());
   const [soundEnabled, setSoundEnabled] = useState(() => getStoredSoundEnabled());
   const [view, setView] = useState<AppView>('home');
@@ -64,6 +66,11 @@ function App({ initialTheme }: AppProps) {
   const handleThemeChange = (next: Theme) => {
     applyTheme(next);
     setTheme(next);
+  };
+
+  const handleCardFaceStyleChange = (next: CardFaceStyle) => {
+    applyCardFaceStyle(next);
+    setCardFaceStyle(next);
   };
 
   const handleLocaleChange = (next: Locale) => {
@@ -147,6 +154,8 @@ function App({ initialTheme }: AppProps) {
           onSoundChange={handleSoundChange}
           theme={theme}
           onThemeChange={handleThemeChange}
+          cardFaceStyle={cardFaceStyle}
+          onCardFaceStyleChange={handleCardFaceStyleChange}
         />
       </div>
     </I18nProvider>

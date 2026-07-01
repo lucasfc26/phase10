@@ -33,6 +33,9 @@ export const es: Translations = {
     darkMode: 'Modo oscuro',
     darkOn: 'Activado',
     darkOff: 'Desactivado',
+    cardFaceStyle: 'Fondo de cartas',
+    cardFaceArt: 'Personalizado',
+    cardFaceMono: 'Monocromático',
     close: 'Cerrar',
   },
   rules: {

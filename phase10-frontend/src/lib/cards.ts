@@ -33,3 +33,12 @@ export function resolveTowerCardImageSrc(card: Card): string | undefined {
   if (card.powerId) return TOWER_POWER_IMAGE_BY_ID.get(card.powerId);
   return undefined;
 }
+
+export function getPlayingCardShellClass(card: Card): string {
+  if (isTowerPowerCard(card)) {
+    return `playing-card--tower playing-card--tower-${card.powerCategory ?? 'attack'}`;
+  }
+  if (card.type === 'wild') return 'playing-card--wild';
+  if (card.type === 'skip') return 'playing-card--skip';
+  return 'playing-card--number';
+}
