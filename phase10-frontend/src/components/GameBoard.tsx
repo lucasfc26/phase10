@@ -46,7 +46,6 @@ interface GameBoardProps {
   initialRoom: GameRoom;
   playerProfile: { name: string; avatar: string; color: string };
   onlineSession?: RoomSession | null;
-  preselectedTowerClass?: TowerCharacterClass;
   onExit: () => void;
   initialSoundEnabled?: boolean;
 }
@@ -123,7 +122,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   initialRoom,
   playerProfile,
   onlineSession,
-  preselectedTowerClass,
   onExit,
   initialSoundEnabled = true,
 }) => {
@@ -586,23 +584,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       'success',
     );
   };
-
-  const lobbyClassAutoSentRef = useRef(false);
-  useEffect(() => {
-    if (!isOnline || !isTowerMaster || room.status !== 'character_select') return;
-    if (!preselectedTowerClass || lobbyClassAutoSentRef.current) return;
-    const me = room.players.find((p) => p.id === onlineSession?.memberId);
-    if (!me || me.towerCharacterClass || me.isBot) return;
-    lobbyClassAutoSentRef.current = true;
-    sendOnlineAction({ type: 'select_character', classId: preselectedTowerClass });
-  }, [
-    isOnline,
-    isTowerMaster,
-    room.status,
-    room.players,
-    preselectedTowerClass,
-    onlineSession?.memberId,
-  ]);
 
   // ----------------------------------------------------
   // GETTERS & HELPERS

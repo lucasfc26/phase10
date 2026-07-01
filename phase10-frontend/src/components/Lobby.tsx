@@ -19,7 +19,7 @@ import {
   Building2,
   Spade,
 } from "lucide-react";
-import { GameRoom, Player, TowerCharacterClass } from "../types";
+import { GameRoom, Player } from "../types";
 import { generateId } from "../gameEngine";
 import type { ActiveGameState } from "../games/GameRouter";
 import type { CardGameId, GamePlayerProfile } from "../games/types";
@@ -45,11 +45,8 @@ import {
   emitRoomLeave,
 } from "../services/onlineSocket";
 import {
-  TOWER_CHARACTER_CLASSES,
   pickRandomTowerCharacterClass,
-  getTowerCharacterInfo,
 } from "../games/towerMaster/characters";
-import { TowerCharacterBadge } from "./TowerCharacterSelect";
 import { PlayerAvatar } from "./PlayerAvatar";
 import { CharacterCreator, DEFAULT_CHARACTER } from "./CharacterCreator";
 import {
@@ -482,16 +479,8 @@ export const Lobby: React.FC<LobbyProps> = ({
       onGameState: (room) => {
         const cardGameId =
           (room.settings as { cardGame?: typeof cardGame }).cardGame ?? cardGame;
-        const localLobbyPlayer = lobbyPlayers.find((p) => p.id === onlineSession.memberId);
         onStartGame(
-          {
-            cardGame: cardGameId,
-            room,
-            session: onlineSession,
-            ...(cardGameId === "tower_master" && localLobbyPlayer?.towerCharacterClass
-              ? { preselectedTowerClass: localLobbyPlayer.towerCharacterClass }
-              : {}),
-          } as ActiveGameState,
+          { cardGame: cardGameId, room, session: onlineSession } as ActiveGameState,
           profile,
         );
       },
@@ -590,9 +579,7 @@ export const Lobby: React.FC<LobbyProps> = ({
     const isTowerLaunch = cardGame === "tower_master";
     const launchPlayers = lobbyPlayers.map((player) => ({
       ...player,
-      towerCharacterClass:
-        player.towerCharacterClass ??
-        (player.isBot ? pickRandomTowerCharacterClass() : undefined),
+      towerCharacterClass: player.isBot ? pickRandomTowerCharacterClass() : undefined,
     }));
 
     const createdRoom: GameRoom = {
@@ -1174,76 +1161,6 @@ export const Lobby: React.FC<LobbyProps> = ({
             </p>
           </div>
 
-          {cardGame === "tower_master" && (
-            <div className="bg-surface-muted border border-default rounded-xl p-4 space-y-3">
-              <div>
-                <h4 className="text-xs font-black uppercase tracking-wider text-secondary">
-                  Sua classe (Mestre da Torre)
-                </h4>
-                <p className="text-[10px] text-muted mt-1">
-                  Escolha agora ou na tela antes da partida (pass-and-play). Bots recebem classe aleatória.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                {TOWER_CHARACTER_CLASSES.map((character) => {
-                  const localPlayerId =
-                    gameMode === "online" && onlineSession
-                      ? onlineSession.memberId
-                      : lobbyPlayers[0]?.id;
-                  const localPlayer = lobbyPlayers.find((p) => p.id === localPlayerId);
-                  const isSelected = localPlayer?.towerCharacterClass === character.id;
-                  return (
-                    <button
-                      key={character.id}
-                      type="button"
-                      onClick={() => {
-                        if (!localPlayerId) return;
-                        setLobbyPlayers((prev) =>
-                          prev.map((player) =>
-                            player.id === localPlayerId
-                              ? { ...player, towerCharacterClass: character.id as TowerCharacterClass }
-                              : player,
-                          ),
-                        );
-                      }}
-                      className={`tower-class-card tower-class-card--compact text-left ${
-                        isSelected ? "tower-class-card--selected" : ""
-                      }`}
-                    >
-                      <div className="tower-class-card__art tower-class-card__art--compact">
-                        <img src={character.imageSrc} alt="" draggable={false} />
-                      </div>
-                      <span className="tower-class-card__name">{character.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {(() => {
-                const localPlayerId =
-                  gameMode === "online" && onlineSession
-                    ? onlineSession.memberId
-                    : lobbyPlayers[0]?.id;
-                const selectedClass = lobbyPlayers.find((p) => p.id === localPlayerId)
-                  ?.towerCharacterClass;
-                const classInfo = selectedClass ? getTowerCharacterInfo(selectedClass) : null;
-                if (!classInfo) return null;
-                return (
-                  <div className="tower-class-detail">
-                    <h5 className="tower-class-detail__name">{classInfo.name}</h5>
-                    <p className="tower-class-detail__line">
-                      <span className="tower-class-detail__label">Passiva</span>
-                      {classInfo.passive}
-                    </p>
-                    <p className="tower-class-detail__line">
-                      <span className="tower-class-detail__label">Exclusivo</span>
-                      {classInfo.exclusive}
-                    </p>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
           {/* Active players grid representation */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {lobbyPlayers.map((p, idx) => (
@@ -1281,9 +1198,6 @@ export const Lobby: React.FC<LobbyProps> = ({
                         <>
                           <User className="w-3 h-3" /> Humano
                         </>
-                      )}
-                      {cardGame === "tower_master" && p.towerCharacterClass && (
-                        <TowerCharacterBadge classId={p.towerCharacterClass} compact />
                       )}
                       {gameMode === "online" && !p.isBot && p.id !== onlineHostMemberId && (
                         <span
