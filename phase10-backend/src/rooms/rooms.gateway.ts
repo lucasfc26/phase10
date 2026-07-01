@@ -24,6 +24,10 @@ import { GameActionDto } from '../game/dto/game-action.dto';
 
 import { GameService } from '../game/game.service';
 
+import { OnlineGameService } from '../game/online-game.service';
+
+import { AnyGameState } from '../common/card-game.types';
+
 import { RoomsService } from './rooms.service';
 
 
@@ -67,6 +71,8 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     private readonly roomsService: RoomsService,
 
     private readonly gameService: GameService,
+
+    private readonly onlineGameService: OnlineGameService,
 
   ) {}
 
@@ -346,6 +352,48 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
+  @SubscribeMessage('lobby:set_ready')
+
+  async setReady(
+
+    @ConnectedSocket() client: Socket,
+
+    @MessageBody() body: { ready?: boolean },
+
+  ) {
+
+    const memberId = client.data.memberId as string;
+
+    const roomId = client.data.roomId as string;
+
+    try {
+
+      const lobby = await this.roomsService.setMemberReady(
+
+        roomId,
+
+        memberId,
+
+        body?.ready !== false,
+
+      );
+
+      this.server.to(roomId).emit('lobby:update', lobby);
+
+      return { ok: true };
+
+    } catch (err) {
+
+      const message = err instanceof Error ? err.message : 'Erro ao marcar pronto.';
+
+      return { error: message };
+
+    }
+
+  }
+
+
+
   @SubscribeMessage('game:start')
 
   async startGame(@ConnectedSocket() client: Socket) {
@@ -425,8 +473,8 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
         const lobby = await this.roomsService.getLobbyState(roomId);
         this.server.to(roomId).emit('lobby:update', lobby);
 
-        const masked = this.gameService.maskStateForPlayer(gameRoom, memberId);
-        return { ok: true, room: masked };
+      const masked = this.onlineGameService.maskStateForPlayer(gameRoom, memberId);
+      return { ok: true, room: masked };
       }
 
       await this.roomsService.assertMemberCanPlay(memberId, roomId);
@@ -434,9 +482,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       let gameRoom = await this.roomsService.getGameRoom(roomId);
       this.roomsService.assertStateVersion(gameRoom, action.expectedStateVersion);
 
-      const result = this.gameService.applyAction(gameRoom, memberId, action);
+      const result = this.onlineGameService.applyAction(gameRoom, memberId, action);
 
-      gameRoom = await this.roomsService.saveGameRoom(roomId, result.gameRoom);
+      gameRoom = await this.roomsService.saveGameRoom(roomId, result.state);
 
 
 
@@ -480,9 +528,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
       void this.scheduleBotTurns(roomId);
 
-      const masked = this.gameService.maskStateForPlayer(gameRoom, memberId);
+      const masked = this.onlineGameService.maskStateForPlayer(gameRoom, memberId);
 
-      return { ok: true, room: masked };
+      return { ok: true, room: masked, privateMessages: result.privateMessages };
 
     } catch (err) {
 
@@ -498,17 +546,15 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-  private shouldPersistAfterBotTurn(gameRoom: import('../common/game.types').GameRoom): boolean {
-    if (gameRoom.status !== 'playing') return true;
-    const next = gameRoom.players[gameRoom.currentTurnIndex];
-    return !next?.isBot;
+  private shouldPersistAfterBotTurn(gameRoom: AnyGameState): boolean {
+    return this.onlineGameService.shouldPersistAfterBotTurn(gameRoom);
   }
 
   private async publishBotGameState(
     roomId: string,
-    gameRoom: import('../common/game.types').GameRoom,
+    gameRoom: AnyGameState,
     persist: boolean,
-  ): Promise<import('../common/game.types').GameRoom> {
+  ): Promise<AnyGameState> {
     if (persist) {
       const saved = await this.roomsService.saveGameRoom(roomId, gameRoom);
       await this.broadcastGameState(roomId, saved);
@@ -579,9 +625,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-        const active = gameRoom.players[gameRoom.currentTurnIndex];
-
-        if (!active?.isBot) break;
+        if (!this.onlineGameService.isBotTurn(gameRoom)) break;
 
 
 
@@ -593,9 +637,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
         if (turnAge >= RoomsGateway.BOT_TURN_TIMEOUT_MS) {
 
-          const skipResult = this.gameService.skipStuckBotTurn(gameRoom);
+          const skipResult = this.onlineGameService.skipStuckBotTurn(gameRoom);
 
-          gameRoom = skipResult.gameRoom;
+          gameRoom = skipResult.state;
 
           this.emitBotLogs(roomId, skipResult);
 
@@ -646,9 +690,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-        const stillActive = gameRoom.players[gameRoom.currentTurnIndex];
-
-        if (!stillActive?.isBot) break;
+        if (!this.onlineGameService.isBotTurn(gameRoom)) break;
 
 
 
@@ -666,15 +708,15 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
         try {
 
-          result = this.gameService.executeBotTurn(gameRoom);
+          result = this.onlineGameService.executeBotTurn(gameRoom);
 
         } catch {
 
-          result = this.gameService.skipStuckBotTurn(gameRoom);
+          result = this.onlineGameService.skipStuckBotTurn(gameRoom);
 
         }
 
-        gameRoom = result.gameRoom;
+        gameRoom = result.state;
 
         this.emitBotLogs(roomId, result);
 
@@ -720,12 +762,12 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     }
   }
 
-  private async broadcastGameState(roomId: string, gameRoom: import('../common/game.types').GameRoom) {
+  private async broadcastGameState(roomId: string, gameRoom: AnyGameState) {
     const sockets = await this.server.in(roomId).fetchSockets();
 
     for (const socket of sockets) {
       const viewerId = socket.data.memberId as string;
-      const masked = this.gameService.maskStateForPlayer(gameRoom, viewerId);
+      const masked = this.onlineGameService.maskStateForPlayer(gameRoom, viewerId);
       socket.emit('game:state', masked);
     }
   }

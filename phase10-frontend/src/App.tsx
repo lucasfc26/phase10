@@ -85,7 +85,7 @@ function App({ initialTheme }: AppProps) {
   };
 
   const handleExitGame = () => {
-    if (activeGame?.cardGame === 'phase10') {
+    if (activeGame?.session) {
       emitRoomLeave();
     }
     setActiveGame(null);

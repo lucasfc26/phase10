@@ -1,5 +1,12 @@
 import type { CardGameId } from './games/types';
 
+export type TowerCharacterClass =
+  | 'mago'
+  | 'guerreiro'
+  | 'ladino'
+  | 'guardiao'
+  | 'alquimista';
+
 export type TowerCardCategory = 'attack' | 'defense' | 'manipulation' | 'chaos' | 'epic' | 'legendary';
 export type TowerCardRarity = 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -56,14 +63,21 @@ export interface Player {
   score: number;
   isSkipped: boolean;     // If player is skipped on their next turn
   color?: string;         // Theme color
+  isReady?: boolean;      // Online lobby ready flag
+  isConnected?: boolean;  // Online connection flag
   energy?: number;
   towerShield?: boolean;
   towerReflectNext?: boolean;
   towerArmorTurns?: number;
+  towerAttackImmune?: boolean;
   towerCannotLayDown?: boolean;
   towerExtraTurn?: boolean;
   towerLegendaryId?: string;
   towerLegendaryUsedThisRound?: boolean;
+  towerCharacterClass?: TowerCharacterClass;
+  towerClassAbilityUsedThisRound?: boolean;
+  towerBonusDrawNextRound?: number;
+  towerCannotDraw?: boolean;
 }
 
 export interface GameLog {
@@ -97,7 +111,7 @@ export interface GameRoom {
   code: string;
   hostId: string;
   players: Player[];
-  status: 'lobby' | 'playing' | 'round_end' | 'game_over';
+  status: 'lobby' | 'character_select' | 'playing' | 'round_end' | 'game_over';
   maxPlayers: number;
   currentTurnIndex: number;
   drawPile: Card[];
@@ -108,6 +122,8 @@ export interface GameRoom {
   winnerId: string | null;
   hasDrawnThisTurn?: boolean;
   stateVersion?: number;
+  towerPowersDisabledRound?: number | null;
+  lastTowerPowerPlayed?: Card | null;
   settings: {
     gameMode: 'bots' | 'pass_and_play' | 'online'; // Added 'online'
     botDelay: number; // milliseconds

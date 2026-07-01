@@ -17,6 +17,8 @@ export interface LobbyPlayer {
   isBot: boolean;
   isConnected: boolean;
   seatIndex: number;
+  waitingForNextRound?: boolean;
+  isReady?: boolean;
 }
 
 export interface LobbyState {
@@ -28,6 +30,7 @@ export interface LobbyState {
   players: LobbyPlayer[];
   hasPassword: boolean;
   allowBots: boolean;
+  cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
 }
 
 export interface PublicRoom {
@@ -39,6 +42,7 @@ export interface PublicRoom {
   hasPassword: boolean;
   status: string;
   createdAt: string;
+  cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -66,6 +70,7 @@ export const onlineApi = {
     maxPlayers: number;
     password?: string;
     allowBots?: boolean;
+    cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
   }) =>
     request<{ session: RoomSession; lobby: LobbyState }>('/rooms', {
       method: 'POST',

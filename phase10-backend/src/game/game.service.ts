@@ -23,10 +23,20 @@ import {
   validatePhase,
 } from './game-engine';
 import { GameActionDto } from './dto/game-action.dto';
+import {
+  applyClassAbility,
+  applyLegendary,
+  applyTowerPower,
+  applyTowerTurnStart,
+  isTowerMaster,
+} from '../games/tower/engine';
 
-export interface GameStatePayload {
-  room: GameRoom;
-  logs: Array<{ id: string; message: string; type: string; timestamp: string }>;
+export interface GameActionResult {
+  gameRoom: GameRoom;
+  log?: string;
+  logType?: string;
+  skipLogs?: string[];
+  privateMessages?: string[];
 }
 
 @Injectable()
@@ -130,13 +140,75 @@ export class GameService {
     gameRoom: GameRoom,
     memberId: string,
     action: GameActionDto,
-  ): { gameRoom: GameRoom; log?: string; logType?: string; skipLogs?: string[] } {
+  ): GameActionResult {
     if (action.type === 'next_round') {
       throw new BadRequestException('Use o endpoint de próxima rodada do servidor.');
     }
 
     if (gameRoom.status !== 'playing') {
       throw new BadRequestException('A partida não está em andamento.');
+    }
+
+    if (action.type === 'use_legendary') {
+      const legendaryResult = applyLegendary(gameRoom, memberId, {
+        generalCardIds: action.generalCardIds,
+        group1CardIds: action.group1CardIds,
+        group2CardIds: action.group2CardIds,
+      });
+      let next = legendaryResult.gameRoom;
+      const endResult = evaluateRoundEnd(next.players, next.laidDownPhases, {
+        drawPile: next.drawPile,
+        discardPile: next.discardPile,
+      });
+      if (endResult) {
+        next = this.handleRoundEnd(next, endResult.allAdvance);
+        return {
+          gameRoom: next,
+          log: endResult.allAdvance
+            ? '🎉 TODOS BAIARAM SUAS FASES! A RODADA FOI ENCERRADA! 🎉'
+            : `🎉 ${endResult.winner?.name} BATEU E FECHOU A RODADA! 🎉`,
+          logType: 'success',
+          privateMessages: legendaryResult.privateMessages,
+        };
+      }
+      return {
+        gameRoom: next,
+        log: legendaryResult.log,
+        logType: legendaryResult.logType,
+        privateMessages: legendaryResult.privateMessages,
+      };
+    }
+
+    if (action.type === 'use_tower_power') {
+      const powerResult = applyTowerPower(gameRoom, memberId, {
+        cardId: action.cardId,
+        copyMode: action.copyMode,
+        copiedPowerId: action.copiedPowerId,
+        targetPlayerId: action.targetPlayerId,
+        chosenColor: action.chosenColor,
+        ownCardId: action.ownCardId,
+        discardRecoveryId: action.discardRecoveryId,
+        reciclagemDiscardId: action.reciclagemDiscardId,
+        segundaChanceDiscardIds: action.segundaChanceDiscardIds,
+      });
+      return {
+        gameRoom: powerResult.gameRoom,
+        log: powerResult.log,
+        logType: powerResult.logType,
+        privateMessages: powerResult.privateMessages,
+      };
+    }
+
+    if (action.type === 'use_class_ability') {
+      const classResult = applyClassAbility(gameRoom, memberId, {
+        alchemistCardId: action.alchemistCardId,
+      });
+      return {
+        gameRoom: classResult.gameRoom,
+        log: classResult.log,
+        logType: classResult.logType,
+        privateMessages: classResult.privateMessages,
+      };
     }
 
     const resolved = ensureActivePlayerNotSkipped(gameRoom.players, gameRoom.currentTurnIndex);
@@ -275,7 +347,7 @@ export class GameService {
     state = discardResult.gameRoom;
     logs.push({
       id: logId(),
-      message: discardResult.log,
+      message: discardResult.log ?? `${bot.name} descartou.`,
       type: discardResult.logType || 'action',
       timestamp: ts(),
     });
@@ -310,13 +382,18 @@ export class GameService {
     }
 
     const advanced = advanceToNextPlayer(state.players, state.currentTurnIndex);
-    const next: GameRoom = {
+    let next: GameRoom = {
       ...state,
       players: advanced.players,
       currentTurnIndex: advanced.currentTurnIndex,
       hasDrawnThisTurn: false,
       currentTurnStartedAt: Date.now(),
     };
+
+    if (isTowerMaster(next)) {
+      const turnStart = applyTowerTurnStart(next, next.currentTurnIndex);
+      next = turnStart.gameRoom;
+    }
 
     const skipMessages = [
       ...resolved.skippedPlayers.map((p) => `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`),
@@ -340,6 +417,11 @@ export class GameService {
     const discardPile = [...gameRoom.discardPile];
     const players = [...gameRoom.players];
     const idx = gameRoom.currentTurnIndex;
+
+    if (isTowerMaster(gameRoom) && players[idx].towerCannotDraw) {
+      throw new BadRequestException('Você está congelado e não pode comprar cartas neste turno.');
+    }
+
     const hand = [...players[idx].cards];
     let drawn: Card | undefined;
 
@@ -371,9 +453,10 @@ export class GameService {
     gameRoom: GameRoom,
     cardId: string,
     skipPlayerId: string | null,
-  ): { gameRoom: GameRoom; log: string; logType: string; skipLogs?: string[] } {
+  ): GameActionResult {
+    const turnIndex = gameRoom.currentTurnIndex;
     const players = gameRoom.players.map((p, idx) => {
-      if (idx === gameRoom.currentTurnIndex) {
+      if (idx === turnIndex) {
         const card = p.cards.find((c) => c.id === cardId);
         if (!card) throw new BadRequestException('Carta não está na sua mão.');
         return { ...p, cards: p.cards.filter((c) => c.id !== cardId) };
@@ -384,7 +467,7 @@ export class GameService {
       return p;
     });
 
-    const card = gameRoom.players[gameRoom.currentTurnIndex].cards.find((c) => c.id === cardId);
+    const card = gameRoom.players[turnIndex].cards.find((c) => c.id === cardId);
     if (!card) throw new BadRequestException('Carta inválida.');
     if (card.type === 'skip' && !skipPlayerId) {
       throw new BadRequestException('Selecione um jogador para pular.');
@@ -412,6 +495,32 @@ export class GameService {
       };
     }
 
+    const privateMessages: string[] = [];
+    const extraLogs: string[] = [];
+
+    if (isTowerMaster(next) && players[turnIndex]?.towerExtraTurn) {
+      const updatedPlayers = next.players.map((p, idx) =>
+        idx === turnIndex ? { ...p, towerExtraTurn: false } : p,
+      );
+      next = {
+        ...next,
+        players: updatedPlayers,
+        hasDrawnThisTurn: false,
+        currentTurnStartedAt: Date.now(),
+      };
+      const turnStart = applyTowerTurnStart(next, turnIndex);
+      next = turnStart.gameRoom;
+      if (turnStart.log) extraLogs.push(turnStart.log);
+      if (turnStart.privateMessages) privateMessages.push(...turnStart.privateMessages);
+      extraLogs.push(`${players[turnIndex].name} ganhou o turno extra.`);
+      return {
+        gameRoom: next,
+        log: `${players[turnIndex].name} descartou uma carta. ${extraLogs.join(' ')}`,
+        logType: 'action',
+        privateMessages: privateMessages.length > 0 ? privateMessages : undefined,
+      };
+    }
+
     const advanced = advanceToNextPlayer(next.players, next.currentTurnIndex);
     next = {
       ...next,
@@ -421,15 +530,23 @@ export class GameService {
       currentTurnStartedAt: Date.now(),
     };
 
+    if (isTowerMaster(next)) {
+      const turnStart = applyTowerTurnStart(next, next.currentTurnIndex);
+      next = turnStart.gameRoom;
+      if (turnStart.log) extraLogs.push(turnStart.log);
+      if (turnStart.privateMessages) privateMessages.push(...turnStart.privateMessages);
+    }
+
     const skipMessages = advanced.skippedPlayers.map(
       (p) => `🚫 ${p.avatar} ${p.name} foi pulado por um Skip!`,
     );
 
     return {
       gameRoom: next,
-      log: `${players[gameRoom.currentTurnIndex].name} descartou uma carta.`,
+      log: `${players[turnIndex].name} descartou uma carta.${extraLogs.length ? ` ${extraLogs.join(' ')}` : ''}`,
       logType: 'action',
       skipLogs: skipMessages,
+      privateMessages: privateMessages.length > 0 ? privateMessages : undefined,
     };
   }
 
@@ -441,6 +558,10 @@ export class GameService {
 
     if (!gameRoom.hasDrawnThisTurn) {
       throw new BadRequestException('Compre uma carta antes de baixar a fase.');
+    }
+
+    if (isTowerMaster(gameRoom) && active.towerCannotLayDown) {
+      throw new BadRequestException('Você está bloqueado e não pode baixar o desafio neste turno.');
     }
 
     const allIds = [...group1Ids, ...group2Ids];

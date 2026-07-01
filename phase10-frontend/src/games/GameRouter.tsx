@@ -10,8 +10,8 @@ import type { RoomSession } from '../services/onlineApi';
 export type ActiveGameState =
   | { cardGame: 'phase10'; room: GameRoom; session?: RoomSession | null }
   | { cardGame: 'tower_master'; room: GameRoom; session?: RoomSession | null }
-  | { cardGame: 'truco'; room: TrucoRoom }
-  | { cardGame: 'poker'; room: PokerRoom };
+  | { cardGame: 'truco'; room: TrucoRoom; session?: RoomSession | null }
+  | { cardGame: 'poker'; room: PokerRoom; session?: RoomSession | null };
 
 interface GameRouterProps {
   game: ActiveGameState;
@@ -31,6 +31,7 @@ export function GameRouter({
       <TrucoBoard
         initialRoom={game.room}
         playerProfile={playerProfile}
+        onlineSession={game.session ?? null}
         onExit={onExit}
         initialSoundEnabled={initialSoundEnabled}
       />
@@ -42,6 +43,7 @@ export function GameRouter({
       <PokerBoard
         initialRoom={game.room}
         playerProfile={playerProfile}
+        onlineSession={game.session ?? null}
         onExit={onExit}
         initialSoundEnabled={initialSoundEnabled}
       />
@@ -61,4 +63,8 @@ export function GameRouter({
 
 export function isPhase10Game(game: ActiveGameState): game is { cardGame: 'phase10'; room: GameRoom } {
   return game.cardGame === 'phase10';
+}
+
+export function getActiveCardGameId(game: ActiveGameState): CardGameId {
+  return game.cardGame;
 }

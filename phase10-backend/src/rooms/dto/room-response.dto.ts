@@ -7,6 +7,7 @@ export class PublicRoomDto {
   hasPassword!: boolean;
   status!: string;
   createdAt!: Date;
+  cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
 }
 
 export class RoomSessionDto {
@@ -27,6 +28,7 @@ export class LobbyPlayerDto {
   isConnected!: boolean;
   seatIndex!: number;
   waitingForNextRound?: boolean;
+  isReady?: boolean;
 }
 
 export class LobbyStateDto {
@@ -38,4 +40,5 @@ export class LobbyStateDto {
   players!: LobbyPlayerDto[];
   hasPassword!: boolean;
   allowBots!: boolean;
+  cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
 }

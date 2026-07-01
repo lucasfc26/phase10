@@ -1,8 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LogOut, Spade } from 'lucide-react';
 import { PlayerAvatar } from '../../components/PlayerAvatar';
 import { SuitCard } from '../shared/SuitCard';
 import type { GameBoardProps } from '../types';
+import type { RoomSession } from '../../services/onlineApi';
+import {
+  connectOnlineSocket,
+  emitGameAction,
+  getRoomDeletedMessage,
+} from '../../services/onlineSocket';
 import {
   autoAdvanceStreet,
   botPokerAction,
@@ -18,18 +24,86 @@ import {
 } from './engine';
 import { POKER_SUIT_SYMBOL, type PokerRoom } from './types';
 
-export const PokerBoard: React.FC<GameBoardProps<PokerRoom>> = ({
+type PokerBoardProps = GameBoardProps<PokerRoom> & {
+  onlineSession?: RoomSession | null;
+};
+
+function getMyPlayerIndex(
+  room: PokerRoom,
+  isOnline: boolean,
+  memberId?: string,
+  name?: string,
+): number {
+  if (isOnline && memberId) {
+    const idx = room.players.findIndex((p) => p.id === memberId);
+    return idx >= 0 ? idx : 0;
+  }
+  return getHumanPlayerIndex(room, name ?? '');
+}
+
+export const PokerBoard: React.FC<PokerBoardProps> = ({
   initialRoom,
   playerProfile,
+  onlineSession,
   onExit,
 }) => {
+  const isOnline = !!onlineSession;
   const [room, setRoom] = useState<PokerRoom>(initialRoom);
-  const humanIndex = getHumanPlayerIndex(room, playerProfile.name);
+  const [isActionPending, setIsActionPending] = useState(false);
+  const lastStateVersionRef = useRef(initialRoom.stateVersion ?? 0);
+  const pendingActionRef = useRef(false);
+
+  const humanIndex = getMyPlayerIndex(
+    room,
+    isOnline,
+    onlineSession?.memberId,
+    playerProfile.name,
+  );
   const isMyTurn = room.currentPlayerIndex === humanIndex && !room.roundSummary;
   const human = room.players[humanIndex];
   const toCall = room.currentBet - (human?.currentBet ?? 0);
 
+  useEffect(() => {
+    if (!isOnline || !onlineSession) return;
+    connectOnlineSocket(onlineSession.sessionToken, {
+      onGameState: (state) => {
+        const next = state as PokerRoom;
+        const version = next.stateVersion ?? 0;
+        if (version < lastStateVersionRef.current) return;
+        lastStateVersionRef.current = version;
+        setRoom(next);
+      },
+      onRoomDeleted: () => {
+        alert(getRoomDeletedMessage('inactive'));
+        onExit();
+      },
+    });
+  }, [isOnline, onlineSession?.sessionToken, onExit]);
+
+  const sendOnlineAction = (action: Record<string, unknown>) => {
+    if (pendingActionRef.current) return;
+    pendingActionRef.current = true;
+    setIsActionPending(true);
+    emitGameAction(
+      { ...action, expectedStateVersion: lastStateVersionRef.current },
+      (result) => {
+        pendingActionRef.current = false;
+        setIsActionPending(false);
+        if (result?.error) {
+          alert(result.error);
+          return;
+        }
+        if (result?.room) {
+          const next = result.room as PokerRoom;
+          lastStateVersionRef.current = next.stateVersion ?? lastStateVersionRef.current;
+          setRoom(next);
+        }
+      },
+    );
+  };
+
   const runBots = useCallback(() => {
+    if (isOnline) return;
     setRoom((current) => {
       let next = current;
       if (next.roundSummary) return next;
@@ -57,21 +131,21 @@ export const PokerBoard: React.FC<GameBoardProps<PokerRoom>> = ({
       }
       return next;
     });
-  }, []);
+  }, [isOnline]);
 
   useEffect(() => {
+    if (isOnline) return;
     const timer = setTimeout(runBots, room.settings.botDelay);
     return () => clearTimeout(timer);
-  }, [room, runBots]);
+  }, [room, runBots, isOnline]);
 
-  // All-in: revela flop (3), turn (4) e river (5) uma rua por vez
   useEffect(() => {
-    if (!canAutoAdvanceStreet(room)) return;
+    if (isOnline || !canAutoAdvanceStreet(room)) return;
     const timer = setTimeout(() => {
       setRoom((r) => autoAdvanceStreet(r));
     }, 900);
     return () => clearTimeout(timer);
-  }, [room.street, room.communityCards.length, room.roundSummary]);
+  }, [room.street, room.communityCards.length, room.roundSummary, isOnline]);
 
   const communityVisible = room.communityCards.slice(
     0,
@@ -84,6 +158,38 @@ export const PokerBoard: React.FC<GameBoardProps<PokerRoom>> = ({
     turn: 'Turn',
     river: 'River',
     showdown: 'Showdown',
+  };
+
+  const act = (type: string, extra?: Record<string, unknown>) => {
+    if (isOnline) {
+      sendOnlineAction({ type, ...extra });
+      return;
+    }
+    setRoom((r) => {
+      switch (type) {
+        case 'fold':
+          return pokerFold(r, humanIndex);
+        case 'check':
+          return pokerCheck(r, humanIndex);
+        case 'call':
+          return pokerCall(r, humanIndex);
+        case 'raise':
+          return pokerRaise(r, humanIndex, (extra?.raiseTotal as number) ?? r.currentBet + r.minRaise);
+        case 'all_in':
+          return pokerAllIn(r, humanIndex);
+        default:
+          return r;
+      }
+    });
+  };
+
+  const handleNextRound = () => {
+    if (isOnline) {
+      if (!onlineSession?.isHost) return;
+      sendOnlineAction({ type: 'next_round' });
+      return;
+    }
+    setRoom((r) => dismissPokerRoundSummary(r));
   };
 
   return (
@@ -143,7 +249,6 @@ export const PokerBoard: React.FC<GameBoardProps<PokerRoom>> = ({
         </div>
       </div>
 
-      {/* Human hole cards */}
       {human && !human.folded && (
         <div className="panel p-4 mb-4">
           <div className="text-xs font-bold uppercase text-muted mb-3">Suas cartas</div>
@@ -159,28 +264,49 @@ export const PokerBoard: React.FC<GameBoardProps<PokerRoom>> = ({
           </div>
           {isMyTurn && (
             <div className="flex flex-wrap gap-2 justify-center mt-4">
-              <button type="button" className="btn-secondary text-xs px-3 py-2" onClick={() => setRoom((r) => pokerFold(r, humanIndex))}>
+              <button
+                type="button"
+                className="btn-secondary text-xs px-3 py-2"
+                disabled={isActionPending}
+                onClick={() => act('fold')}
+              >
                 Desistir
               </button>
               {toCall === 0 ? (
-                <button type="button" className="btn-primary text-xs px-3 py-2" onClick={() => setRoom((r) => pokerCheck(r, humanIndex))}>
+                <button
+                  type="button"
+                  className="btn-primary text-xs px-3 py-2"
+                  disabled={isActionPending}
+                  onClick={() => act('check')}
+                >
                   Passar
                 </button>
               ) : (
-                <button type="button" className="btn-primary text-xs px-3 py-2" onClick={() => setRoom((r) => pokerCall(r, humanIndex))}>
+                <button
+                  type="button"
+                  className="btn-primary text-xs px-3 py-2"
+                  disabled={isActionPending}
+                  onClick={() => act('call')}
+                >
                   Pagar {toCall}
                 </button>
               )}
               <button
                 type="button"
                 className="btn-secondary text-xs px-3 py-2"
+                disabled={isActionPending}
                 onClick={() =>
-                  setRoom((r) => pokerRaise(r, humanIndex, r.currentBet + r.minRaise))
+                  act('raise', { raiseTotal: room.currentBet + room.minRaise })
                 }
               >
                 Aumentar
               </button>
-              <button type="button" className="btn-secondary text-xs px-3 py-2" onClick={() => setRoom((r) => pokerAllIn(r, humanIndex))}>
+              <button
+                type="button"
+                className="btn-secondary text-xs px-3 py-2"
+                disabled={isActionPending}
+                onClick={() => act('all_in')}
+              >
                 All-in
               </button>
             </div>
@@ -201,8 +327,13 @@ export const PokerBoard: React.FC<GameBoardProps<PokerRoom>> = ({
             </div>
           )}
           {room.status !== 'game_over' ? (
-            <button type="button" className="btn-primary" onClick={() => setRoom((r) => dismissPokerRoundSummary(r))}>
-              Próxima mão
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleNextRound}
+              disabled={isOnline && !onlineSession?.isHost}
+            >
+              {isOnline && !onlineSession?.isHost ? 'Aguardando host' : 'Próxima mão'}
             </button>
           ) : (
             <button type="button" className="btn-primary" onClick={onExit}>Voltar ao menu</button>

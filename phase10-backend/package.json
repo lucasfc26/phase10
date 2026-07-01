@@ -19,6 +19,7 @@
     "better-sqlite3": "11.10.0",
     "class-transformer": "0.5.1",
     "class-validator": "0.14.1",
+    "react-vite-tailwind": "file:..",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.1",
     "socket.io": "4.8.1",

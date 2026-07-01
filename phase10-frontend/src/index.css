@@ -508,6 +508,24 @@ body {
   min-width: 0;
 }
 
+.tower-hand-side--abilities {
+  align-items: center;
+  text-align: center;
+  gap: 0.65rem;
+}
+
+.tower-ability-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.tower-class-card .playing-card__power-art img {
+  object-fit: cover;
+  object-position: top center;
+}
+
 .tower-hand-side {
   display: flex;
   flex-direction: column;
@@ -586,21 +604,46 @@ body {
   filter: saturate(0.5);
 }
 
+.tower-legendary-card-btn {
+  display: block;
+  margin: 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 0.65rem;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.tower-legendary-card-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.tower-legendary-card-btn--selected {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 0.65rem;
+}
+
+.tower-legendary-card-btn--used,
+.tower-legendary-card-btn:disabled {
+  cursor: not-allowed;
+}
+
 @media (max-width: 900px) {
   .tower-hand-layout {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .tower-hand-side--legendary {
+  .tower-hand-side--abilities {
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 0.5rem 1rem;
+    gap: 0.75rem 1.25rem;
   }
 
-  .tower-hand-side--legendary .tower-hand-side__label {
-    width: 100%;
+  .tower-hand-side--abilities .tower-ability-slot {
+    min-width: 5.5rem;
   }
 }
  
@@ -907,6 +950,116 @@ body {
   padding: 0.25rem;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.tower-class-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-raised);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+
+.tower-class-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px var(--shadow-color);
+}
+
+.tower-class-card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.tower-class-card--compact {
+  align-items: center;
+  text-align: center;
+  padding: 0.45rem;
+}
+
+.tower-class-card__art {
+  aspect-ratio: 3 / 4;
+  border-radius: 0.55rem;
+  overflow: hidden;
+  background: var(--bg-surface-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.tower-class-card__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.tower-class-card__art--compact {
+  width: 100%;
+}
+
+.tower-class-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tower-class-card__name {
+  font-size: 0.78rem;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.tower-class-card--compact .tower-class-card__name {
+  font-size: 0.62rem;
+}
+
+.tower-class-card__line {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.tower-class-card__line--exclusive {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.tower-class-detail {
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--bg-surface));
+}
+
+.tower-class-detail__name {
+  font-size: 0.85rem;
+  font-weight: 900;
+  color: var(--text-primary);
+  margin-bottom: 0.45rem;
+}
+
+.tower-class-detail__line {
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.tower-class-detail__line + .tower-class-detail__line {
+  margin-top: 0.4rem;
+}
+
+.tower-class-detail__label {
+  display: block;
+  font-size: 0.55rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
 }
 
 .playing-card--prompt-discard:hover {

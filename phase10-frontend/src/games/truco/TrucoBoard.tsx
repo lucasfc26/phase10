@@ -1,8 +1,14 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { LogOut, Swords } from "lucide-react";
 import { PlayerAvatar } from "../../components/PlayerAvatar";
 import { SuitCard } from "../shared/SuitCard";
 import type { GameBoardProps } from "../types";
+import type { RoomSession } from "../../services/onlineApi";
+import {
+  connectOnlineSocket,
+  emitGameAction,
+  getRoomDeletedMessage,
+} from "../../services/onlineSocket";
 import {
   acceptTrucoBid,
   botChooseTrucoCard,
@@ -17,18 +23,90 @@ import {
 } from "./engine";
 import { TRUCO_SUIT_SYMBOL, type TrucoRoom } from "./types";
 
-export const TrucoBoard: React.FC<GameBoardProps<TrucoRoom>> = ({
+type TrucoBoardProps = GameBoardProps<TrucoRoom> & {
+  onlineSession?: RoomSession | null;
+};
+
+function getMyPlayerIndex(
+  room: TrucoRoom,
+  isOnline: boolean,
+  memberId?: string,
+  name?: string,
+): number {
+  if (isOnline && memberId) {
+    const idx = room.players.findIndex((p) => p.id === memberId);
+    return idx >= 0 ? idx : 0;
+  }
+  return getHumanPlayerIndex(room, name ?? "");
+}
+
+export const TrucoBoard: React.FC<TrucoBoardProps> = ({
   initialRoom,
   playerProfile,
+  onlineSession,
   onExit,
 }) => {
+  const isOnline = !!onlineSession;
   const [room, setRoom] = useState<TrucoRoom>(initialRoom);
-  const humanIndex = getHumanPlayerIndex(room, playerProfile.name);
+  const [isActionPending, setIsActionPending] = useState(false);
+  const lastStateVersionRef = useRef(initialRoom.stateVersion ?? 0);
+  const pendingActionRef = useRef(false);
+
+  const humanIndex = getMyPlayerIndex(
+    room,
+    isOnline,
+    onlineSession?.memberId,
+    playerProfile.name,
+  );
   const humanTeam = getTeam(humanIndex);
   const isMyTurn = room.currentTurnIndex === humanIndex;
   const mustRespondBid = room.awaitingResponseFromTeam === humanTeam;
 
+  useEffect(() => {
+    if (!isOnline || !onlineSession) return;
+    connectOnlineSocket(onlineSession.sessionToken, {
+      onGameState: (state) => {
+        const next = state as TrucoRoom;
+        const version = next.stateVersion ?? 0;
+        if (version < lastStateVersionRef.current) return;
+        lastStateVersionRef.current = version;
+        setRoom(next);
+      },
+      onRoomDeleted: () => {
+        alert(getRoomDeletedMessage("inactive"));
+        onExit();
+      },
+    });
+  }, [isOnline, onlineSession?.sessionToken, onExit]);
+
+  const sendOnlineAction = (
+    action: Record<string, unknown>,
+    onSuccess?: () => void,
+  ) => {
+    if (pendingActionRef.current) return;
+    pendingActionRef.current = true;
+    setIsActionPending(true);
+    emitGameAction(
+      { ...action, expectedStateVersion: lastStateVersionRef.current },
+      (result) => {
+        pendingActionRef.current = false;
+        setIsActionPending(false);
+        if (result?.error) {
+          alert(result.error);
+          return;
+        }
+        if (result?.room) {
+          const next = result.room as TrucoRoom;
+          lastStateVersionRef.current = next.stateVersion ?? lastStateVersionRef.current;
+          setRoom(next);
+        }
+        onSuccess?.();
+      },
+    );
+  };
+
   const botLoop = useCallback(() => {
+    if (isOnline) return;
     setRoom((current) => {
       let next = current;
 
@@ -60,24 +138,54 @@ export const TrucoBoard: React.FC<GameBoardProps<TrucoRoom>> = ({
       }
       return next;
     });
-  }, []);
+  }, [isOnline]);
 
   useEffect(() => {
+    if (isOnline) return;
     const timer = setTimeout(botLoop, room.settings.botDelay);
     return () => clearTimeout(timer);
-  }, [room, botLoop]);
+  }, [room, botLoop, isOnline]);
 
   const handlePlay = (cardId: string) => {
+    if (isOnline) {
+      sendOnlineAction({ type: "play_card", cardId });
+      return;
+    }
     setRoom((r) => playTrucoCard(r, humanIndex, cardId));
   };
 
   const handleCallTruco = () => {
+    if (isOnline) {
+      sendOnlineAction({ type: "call_truco" });
+      return;
+    }
     setRoom((r) => callTruco(r, humanIndex));
   };
 
-  const handleAccept = () => setRoom((r) => acceptTrucoBid(r));
-  const handleRefuse = () => setRoom((r) => refuseTrucoBid(r));
-  const handleNextRound = () => setRoom((r) => dismissTrucoRoundSummary(r));
+  const handleAccept = () => {
+    if (isOnline) {
+      sendOnlineAction({ type: "accept_truco" });
+      return;
+    }
+    setRoom((r) => acceptTrucoBid(r));
+  };
+
+  const handleRefuse = () => {
+    if (isOnline) {
+      sendOnlineAction({ type: "refuse_truco" });
+      return;
+    }
+    setRoom((r) => refuseTrucoBid(r));
+  };
+
+  const handleNextRound = () => {
+    if (isOnline) {
+      if (!onlineSession?.isHost) return;
+      sendOnlineAction({ type: "next_round" });
+      return;
+    }
+    setRoom((r) => dismissTrucoRoundSummary(r));
+  };
 
   const human = room.players[humanIndex];
 
@@ -252,7 +360,8 @@ export const TrucoBoard: React.FC<GameBoardProps<TrucoRoom>> = ({
               disabled={
                 !isMyTurn ||
                 !!room.awaitingResponseFromTeam ||
-                !!room.roundSummary
+                !!room.roundSummary ||
+                isActionPending
               }
               onClick={() => handlePlay(card.id)}
             />
@@ -274,8 +383,11 @@ export const TrucoBoard: React.FC<GameBoardProps<TrucoRoom>> = ({
               type="button"
               className="btn-primary"
               onClick={handleNextRound}
+              disabled={isOnline && !onlineSession?.isHost}
             >
-              Próxima mão
+              {isOnline && !onlineSession?.isHost
+                ? "Aguardando host"
+                : "Próxima mão"}
             </button>
           ) : (
             <button type="button" className="btn-primary" onClick={onExit}>

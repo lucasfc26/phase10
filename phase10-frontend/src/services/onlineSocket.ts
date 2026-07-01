@@ -3,9 +3,11 @@ import { WS_BASE_URL } from '../config';
 import { GameLog, GameRoom } from '../types';
 import { LobbyState } from './onlineApi';
 
+export type OnlineGameState = GameRoom | import('../games/truco/types').TrucoRoom | import('../games/poker/types').PokerRoom;
+
 export type OnlineSocketCallbacks = {
   onLobbyUpdate?: (lobby: LobbyState) => void;
-  onGameState?: (room: GameRoom) => void;
+  onGameState?: (room: OnlineGameState) => void;
   onGameLog?: (log: GameLog) => void;
   onRoomDeleted?: (payload: { roomId: string; reason: string }) => void;
 };
@@ -19,7 +21,7 @@ function registerHandlers(sock: Socket, callbacks: OnlineSocketCallbacks) {
   sock.off('game:log');
   sock.off('room:deleted');
   sock.on('lobby:update', (lobby: LobbyState) => callbacks.onLobbyUpdate?.(lobby));
-  sock.on('game:state', (room: GameRoom) => callbacks.onGameState?.(room));
+  sock.on('game:state', (room: OnlineGameState) => callbacks.onGameState?.(room));
   sock.on('game:log', (log: GameLog) => callbacks.onGameLog?.(log));
   sock.on('room:deleted', (payload: { roomId: string; reason: string }) =>
     callbacks.onRoomDeleted?.(payload),
@@ -69,6 +71,17 @@ export function emitRoomLeave() {
   disconnectOnlineSocket();
 }
 
+export function emitLobbySetReady(
+  ready: boolean,
+  onResult?: (result: { ok?: boolean; error?: string }) => void,
+) {
+  if (!socket?.connected) {
+    onResult?.({ error: 'Sem conexão com o servidor. Aguarde a conexão e tente novamente.' });
+    return;
+  }
+  socket.emit('lobby:set_ready', { ready }, onResult);
+}
+
 export function emitGameStart(onResult?: (result: { ok?: boolean; error?: string }) => void) {
   if (!socket?.connected) {
     onResult?.({ error: 'Sem conexão com o servidor. Aguarde a conexão e tente novamente.' });
@@ -94,7 +107,7 @@ export function emitLobbyRemoveBot(
 
 export function emitGameAction(
   action: Record<string, unknown>,
-  onResult?: (result: { ok?: boolean; error?: string; room?: GameRoom }) => void,
+  onResult?: (result: { ok?: boolean; error?: string; room?: OnlineGameState; privateMessages?: string[] }) => void,
 ) {
   socket?.emit('game:action', action, onResult);
 }

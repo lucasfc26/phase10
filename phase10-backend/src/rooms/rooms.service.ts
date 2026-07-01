@@ -7,8 +7,10 @@ import {
 import * as bcrypt from 'bcrypt';
 import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import { AnyGameState, CardGameId, isPhaseStyleRoom } from '../common/card-game.types';
 import { DEFAULT_BOT_DELAY_MS } from '../common/game.constants';
 import { GameService } from '../game/game.service';
+import { OnlineGameService } from '../game/online-game.service';
 import { GameRoom } from '../common/game.types';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
@@ -23,12 +25,13 @@ import { Room, RoomMember } from './entities/room.entities';
 export class RoomsService {
   private readonly roomRepo: Repository<Room>;
   private readonly memberRepo: Repository<RoomMember>;
-  private readonly gameRoomCache = new Map<string, GameRoom>();
+  private readonly gameRoomCache = new Map<string, AnyGameState>();
   private publicRoomsCache: { at: number; data: PublicRoomDto[] } | null = null;
 
   constructor(
     private readonly dataSource: DataSource,
     private readonly gameService: GameService,
+    private readonly onlineGameService: OnlineGameService,
   ) {
     this.roomRepo = this.dataSource.getRepository(Room);
     this.memberRepo = this.dataSource.getRepository(RoomMember);
@@ -62,8 +65,13 @@ export class RoomsService {
     this.gameRoomCache.delete(roomId);
   }
 
-  setCachedGameRoom(roomId: string, gameRoom: GameRoom): void {
+  setCachedGameRoom(roomId: string, gameRoom: AnyGameState): void {
     this.gameRoomCache.set(roomId, gameRoom);
+  }
+
+  private getRoomCardGame(room: Room): CardGameId {
+    const settings = room.settings as GameRoom['settings'];
+    return settings?.cardGame ?? 'phase10';
   }
 
   private invalidatePublicRoomsCache(): void {
@@ -100,6 +108,7 @@ export class RoomsService {
         hasPassword: !!room.passwordHash,
         status: room.status,
         createdAt: room.createdAt,
+        cardGame: this.getRoomCardGame(room),
       };
     })
       .filter((room) => room.status !== 'lobby' || room.playerCount > 0);
@@ -112,6 +121,7 @@ export class RoomsService {
     const code = await this.uniqueCode();
     const memberId = uuidv4();
     const sessionToken = uuidv4();
+    const cardGame: CardGameId = dto.cardGame ?? 'phase10';
 
     const room = this.roomRepo.create({
       code,
@@ -124,6 +134,7 @@ export class RoomsService {
         botDelay: DEFAULT_BOT_DELAY_MS,
         customPhases: false,
         allowBots: dto.allowBots ?? true,
+        cardGame,
       },
       roundNumber: 1,
       lastActivityAt: new Date(),
@@ -207,6 +218,7 @@ export class RoomsService {
 
     await this.memberRepo.save(member);
 
+    await this.resetLobbyReadyFlags(room.id);
     await this.touchRoomActivity(room.id);
     this.invalidatePublicRoomsCache();
 
@@ -284,6 +296,7 @@ export class RoomsService {
         isConnected: m.isConnected,
         seatIndex: m.seatIndex,
         waitingForNextRound: m.waitingForNextRound ?? false,
+        isReady: m.isReady ?? false,
       }));
 
     return {
@@ -295,6 +308,7 @@ export class RoomsService {
       players,
       hasPassword: !!room.passwordHash,
       allowBots: (room.settings as GameRoom['settings']).allowBots ?? false,
+      cardGame: this.getRoomCardGame(room),
     };
   }
 
@@ -416,6 +430,7 @@ export class RoomsService {
     });
 
     await this.memberRepo.save(bot);
+    await this.resetLobbyReadyFlags(roomId);
     await this.touchRoomActivity(roomId);
     return this.getLobbyState(roomId);
   }
@@ -436,11 +451,42 @@ export class RoomsService {
     if (!bot || !bot.isBot) throw new BadRequestException('Bot não encontrado.');
 
     await this.memberRepo.delete(botMemberId);
+    await this.resetLobbyReadyFlags(roomId);
     await this.touchRoomActivity(roomId);
     return this.getLobbyState(roomId);
   }
 
-  async startGame(roomId: string, memberId: string): Promise<GameRoom> {
+  async resetLobbyReadyFlags(roomId: string): Promise<void> {
+    await this.memberRepo.update({ roomId, isBot: false }, { isReady: false });
+  }
+
+  async setMemberReady(
+    roomId: string,
+    memberId: string,
+    ready: boolean,
+  ): Promise<LobbyStateDto> {
+    const room = await this.roomRepo.findOne({ where: { id: roomId } });
+    if (!room) throw new NotFoundException('Sala não encontrada.');
+    if (room.status !== 'lobby') {
+      throw new BadRequestException('A partida já começou.');
+    }
+
+    const member = await this.memberRepo.findOne({ where: { id: memberId, roomId } });
+    if (!member) throw new NotFoundException('Jogador não encontrado.');
+    if (member.isBot) {
+      throw new BadRequestException('Bots não marcam pronto.');
+    }
+    if (memberId === room.hostMemberId) {
+      throw new BadRequestException('O host não precisa marcar pronto.');
+    }
+
+    member.isReady = ready;
+    await this.memberRepo.save(member);
+    await this.touchRoomActivity(roomId);
+    return this.getLobbyState(roomId);
+  }
+
+  async startGame(roomId: string, memberId: string): Promise<AnyGameState> {
     const room = await this.roomRepo.findOne({
       where: { id: roomId },
       relations: { members: true },
@@ -449,52 +495,63 @@ export class RoomsService {
     if (room.hostMemberId !== memberId) throw new ForbiddenException('Apenas o host pode iniciar.');
     if (room.status !== 'lobby') throw new BadRequestException('A partida já foi iniciada.');
 
+    const cardGame = this.getRoomCardGame(room);
+
     const members = (room.members || [])
       .filter((m) => !m.waitingForNextRound && (m.isBot || m.isConnected))
       .sort((a, b) => a.seatIndex - b.seatIndex);
 
-    if (members.length < 3) {
-      throw new BadRequestException('Mínimo de 3 jogadores (humanos ou bots) para iniciar.');
+    this.onlineGameService.validateStartMembers(cardGame, members.length);
+
+    const notReady = members.filter(
+      (m) =>
+        !m.isBot &&
+        m.isConnected &&
+        m.id !== room.hostMemberId &&
+        !m.isReady,
+    );
+    if (notReady.length > 0) {
+      const names = notReady.map((m) => m.name).join(', ');
+      throw new BadRequestException(
+        `Aguardando jogadores marcarem Pronto: ${names}.`,
+      );
     }
 
-    const players = this.gameService.membersToPlayers(members);
-    let gameRoom = this.gameService.createInitialGameRoom(
+    const gameState = this.onlineGameService.createInitialState(
+      cardGame,
       room.id,
       room.code,
       room.hostMemberId,
-      players,
+      members,
       room.settings as GameRoom['settings'],
     );
-    gameRoom.maxPlayers = room.maxPlayers;
-    gameRoom = this.gameService.startNewRound(gameRoom);
 
-    const saved = await this.saveGameRoom(roomId, gameRoom);
+    const saved = await this.saveGameRoom(roomId, gameState);
     this.invalidatePublicRoomsCache();
     return saved;
   }
 
-  async getGameRoom(roomId: string): Promise<GameRoom> {
+  async getGameRoom(roomId: string): Promise<AnyGameState> {
     const cached = this.gameRoomCache.get(roomId);
     if (cached) return cached;
 
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
     if (!room || !room.gameStateJson) throw new NotFoundException('Estado do jogo não encontrado.');
-    const gameRoom = this.gameService.deserialize(room.gameStateJson);
+    const gameRoom = this.onlineGameService.deserialize(room.gameStateJson);
     this.gameRoomCache.set(roomId, gameRoom);
     return gameRoom;
   }
 
-  async saveGameRoom(roomId: string, gameRoom: GameRoom): Promise<GameRoom> {
-    const versioned: GameRoom = {
-      ...gameRoom,
-      stateVersion: (gameRoom.stateVersion ?? 0) + 1,
-    };
+  async saveGameRoom(roomId: string, gameRoom: AnyGameState): Promise<AnyGameState> {
+    const versioned = this.onlineGameService.bumpVersion(gameRoom);
 
     const room = await this.roomRepo.findOne({ where: { id: roomId } });
     if (!room) throw new NotFoundException('Sala não encontrada.');
-    room.gameStateJson = this.gameService.serialize(versioned);
+    room.gameStateJson = this.onlineGameService.serialize(versioned);
     room.status = versioned.status as Room['status'];
-    room.roundNumber = versioned.roundNumber;
+    if ('roundNumber' in versioned && typeof versioned.roundNumber === 'number') {
+      room.roundNumber = versioned.roundNumber;
+    }
     room.lastActivityAt = new Date();
     await this.roomRepo.save(room);
 
@@ -502,7 +559,7 @@ export class RoomsService {
     return versioned;
   }
 
-  assertStateVersion(gameRoom: GameRoom, expected?: number): void {
+  assertStateVersion(gameRoom: AnyGameState, expected?: number): void {
     if (expected === undefined) return;
     const current = gameRoom.stateVersion ?? 0;
     if (expected !== current) {
@@ -520,39 +577,33 @@ export class RoomsService {
     }
 
     const gameRoom = await this.getGameRoom(roomId);
-    if (!gameRoom.players.some((p) => p.id === memberId)) {
-      throw new BadRequestException('Você ainda não entrou na partida em andamento.');
-    }
+    this.onlineGameService.assertMemberInGame(gameRoom, memberId);
   }
 
   async startNextRound(
     roomId: string,
     memberId: string,
-  ): Promise<{ gameRoom: GameRoom; log: string; logType: string }> {
+  ): Promise<{ gameRoom: AnyGameState; log: string; logType: string }> {
     let gameRoom = await this.getGameRoom(roomId);
-    if (gameRoom.status !== 'round_end') {
-      throw new BadRequestException('A rodada ainda não terminou.');
-    }
-    if (memberId !== gameRoom.hostId) {
-      throw new ForbiddenException('Apenas o host pode iniciar a próxima rodada.');
-    }
-
     gameRoom = await this.mergeWaitingPlayersForNextRound(roomId, gameRoom);
-    const next = {
-      ...gameRoom,
-      status: 'playing' as const,
-      roundNumber: gameRoom.roundNumber + 1,
-    };
-    const final = this.gameService.startNewRound(next);
-    const saved = await this.saveGameRoom(roomId, final);
-    return {
-      gameRoom: saved,
-      log: `--- Rodada ${saved.roundNumber} Iniciando ---`,
-      logType: 'phase',
-    };
+    const result = this.onlineGameService.applyNextRound(gameRoom, memberId);
+    const saved = await this.saveGameRoom(roomId, result.state);
+    return { gameRoom: saved, log: result.log, logType: result.logType };
   }
 
-  private async mergeWaitingPlayersForNextRound(roomId: string, gameRoom: GameRoom): Promise<GameRoom> {
+  private async mergeWaitingPlayersForNextRound(roomId: string, gameRoom: AnyGameState): Promise<AnyGameState> {
+    await this.memberRepo
+      .createQueryBuilder()
+      .update(RoomMember)
+      .set({ waitingForNextRound: false })
+      .where('roomId = :roomId', { roomId })
+      .andWhere('waitingForNextRound = :waiting', { waiting: true })
+      .execute();
+
+    if (!isPhaseStyleRoom(gameRoom)) {
+      return gameRoom;
+    }
+
     const room = await this.roomRepo.findOne({
       where: { id: roomId },
       relations: { members: true },
@@ -579,14 +630,6 @@ export class RoomsService {
       }
     }
 
-    await this.memberRepo
-      .createQueryBuilder()
-      .update(RoomMember)
-      .set({ waitingForNextRound: false })
-      .where('roomId = :roomId', { roomId })
-      .andWhere('waitingForNextRound = :waiting', { waiting: true })
-      .execute();
-
     players.sort((a, b) => {
       const seatA = members.find((m) => m.id === a.id)?.seatIndex ?? 0;
       const seatB = members.find((m) => m.id === b.id)?.seatIndex ?? 0;
@@ -596,14 +639,14 @@ export class RoomsService {
     return { ...gameRoom, players };
   }
 
-  async getMaskedGameState(roomId: string, memberId: string): Promise<GameRoom | null> {
+  async getMaskedGameState(roomId: string, memberId: string): Promise<AnyGameState | null> {
     const member = await this.memberRepo.findOne({ where: { id: memberId } });
     if (member?.waitingForNextRound) return null;
 
     try {
       const gameRoom = await this.getGameRoom(roomId);
-      if (!gameRoom.players.some((p) => p.id === memberId)) return null;
-      return this.gameService.maskStateForPlayer(gameRoom, memberId);
+      this.onlineGameService.assertMemberInGame(gameRoom, memberId);
+      return this.onlineGameService.maskStateForPlayer(gameRoom, memberId);
     } catch {
       return null;
     }

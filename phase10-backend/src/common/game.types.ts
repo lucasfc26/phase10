@@ -1,10 +1,16 @@
-export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild' | 'skip';
+export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild' | 'skip'
+  | 'attack' | 'defense' | 'manipulation' | 'chaos' | 'epic' | 'legendary';
 
 export interface Card {
   id: string;
-  type: 'number' | 'wild' | 'skip';
+  type: 'number' | 'wild' | 'skip' | 'power';
   value: number; // 1 to 12, or 0 for skip/wild
   color: CardColor;
+  powerId?: string;
+  powerName?: string;
+  powerCategory?: string;
+  powerCost?: number;
+  rarity?: string;
 }
 
 export type PhaseType =
@@ -38,6 +44,20 @@ export interface Player {
   score: number;
   isSkipped: boolean;     // If player is skipped on their next turn
   color?: string;         // Theme color
+  energy?: number;
+  towerShield?: boolean;
+  towerReflectNext?: boolean;
+  towerArmorTurns?: number;
+  towerCannotLayDown?: boolean;
+  towerExtraTurn?: boolean;
+  towerLegendaryId?: string;
+  towerLegendaryUsedThisRound?: boolean;
+  towerCharacterClass?: string;
+  towerClassAbilityUsedThisRound?: boolean;
+  towerBonusDrawNextRound?: number;
+  towerCannotDraw?: boolean;
+  towerAttackImmune?: boolean;
+  towerAlchemistPassiveUsedThisTurn?: boolean;
 }
 
 export interface GameLog {
@@ -71,7 +91,7 @@ export interface GameRoom {
   code: string;
   hostId: string;
   players: Player[];
-  status: 'lobby' | 'playing' | 'round_end' | 'game_over';
+  status: 'lobby' | 'character_select' | 'playing' | 'round_end' | 'game_over';
   maxPlayers: number;
   currentTurnIndex: number;
   drawPile: Card[];
@@ -83,11 +103,16 @@ export interface GameRoom {
   hasDrawnThisTurn: boolean;
   stateVersion: number;
   currentTurnStartedAt?: number;
+  /** Rodada em que Eclipse bloqueou poderes (Mestre da Torre). */
+  towerPowersDisabledRound?: number | null;
+  /** Último poder jogado na rodada (para cópia do Mago). */
+  lastTowerPowerPlayed?: Card | null;
   settings: {
     gameMode: 'bots' | 'pass_and_play' | 'online'; // Added 'online'
     botDelay: number; // milliseconds
     customPhases: boolean;
     allowBots: boolean; // Option to allow bots or not
+    cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
   };
 }
 

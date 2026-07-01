@@ -37,6 +37,7 @@ export class Room {
     botDelay: number;
     customPhases: boolean;
     allowBots: boolean;
+    cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
   };
 
   @Column({ type: 'text', nullable: true })
@@ -96,6 +97,9 @@ export class RoomMember {
 
   @Column({ default: false })
   waitingForNextRound!: boolean;
+
+  @Column({ default: false })
+  isReady!: boolean;
 
   @CreateDateColumn()
   createdAt!: Date;

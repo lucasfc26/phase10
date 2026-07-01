@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateRoomDto {
   @IsString()
@@ -13,7 +13,7 @@ export class CreateRoomDto {
   color!: string;
 
   @IsInt()
-  @Min(3)
+  @Min(2)
   @Max(10)
   maxPlayers!: number;
 
@@ -25,4 +25,8 @@ export class CreateRoomDto {
   @IsOptional()
   @IsBoolean()
   allowBots?: boolean;
+
+  @IsOptional()
+  @IsIn(['phase10', 'truco', 'poker', 'tower_master'])
+  cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
 }

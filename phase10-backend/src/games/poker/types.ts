@@ -1,4 +1,4 @@
-import type { SuitSymbol } from '../shared/SuitCard';
+export type SuitSymbol = '♠' | '♥' | '♦' | '♣';
 
 export type PokerSuit = 'hearts' | 'diamonds' | 'clubs' | 'spades';
 
