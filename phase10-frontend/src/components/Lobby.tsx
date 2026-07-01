@@ -158,7 +158,7 @@ export const Lobby: React.FC<LobbyProps> = ({
   const selectedAvatar = encodeCharacterAvatar(characterConfig);
 
   // Room Settings
-  const [cardGame, setCardGame] = useState<CardGameIdLocal>("phase10");
+  const [cardGame, setCardGame] = useState<CardGameIdLocal>("tower_master");
   const [gameMode, setGameMode] = useState<"bots" | "pass_and_play" | "online">(
     "bots",
   );
@@ -713,7 +713,7 @@ export const Lobby: React.FC<LobbyProps> = ({
       {step === "room_setup" && (
         <form
           onSubmit={handleConfigureRoom}
-          className="bg-surface border border-default rounded-2xl p-6 shadow-xl space-y-6 max-w-2xl mx-auto"
+          className="bg-surface border border-default rounded-2xl p-6 shadow-xl space-y-6 max-w-2xl mx-auto lobby-setup-card"
         >
           <div className="flex items-center justify-between border-b border-default pb-3">
             <h3 className="text-base font-bold text-secondary flex items-center space-x-2">
@@ -738,10 +738,31 @@ export const Lobby: React.FC<LobbyProps> = ({
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <button
                   type="button"
+                  onClick={handleSelectTowerMaster}
+                  className={`relative p-4 rounded-xl border flex flex-col text-left transition-all ${
+                    cardGame === "tower_master"
+                      ? "game-mode-card--active bg-accent-soft border-accent text-secondary"
+                      : "bg-surface-muted border-default text-muted hover:border-default"
+                  }`}
+                >
+                  <span className="absolute top-2 right-2 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-success-muted text-success border border-success">
+                    MVP
+                  </span>
+                  <span className="font-extrabold text-xs text-primary mb-1 flex items-center space-x-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-accent" />
+                    <span>{t.lobby.gameTower}</span>
+                  </span>
+                  <span className="text-[10px] leading-relaxed">
+                    {t.lobby.gameTowerDesc}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setCardGame("phase10")}
                   className={`relative p-4 rounded-xl border flex flex-col text-left transition-all ${
                     cardGame === "phase10"
-                      ? "bg-accent-soft border-accent text-secondary"
+                      ? "game-mode-card--active bg-accent-soft border-accent text-secondary"
                       : "bg-surface-muted border-default text-muted hover:border-default"
                   }`}
                 >
@@ -759,7 +780,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   onClick={() => setCardGame("truco")}
                   className={`relative p-4 rounded-xl border flex flex-col text-left transition-all ${
                     cardGame === "truco"
-                      ? "bg-accent-soft border-accent text-secondary"
+                      ? "game-mode-card--active bg-accent-soft border-accent text-secondary"
                       : "bg-surface-muted border-default text-muted hover:border-default"
                   }`}
                 >
@@ -777,7 +798,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   onClick={() => setCardGame("poker")}
                   className={`relative p-4 rounded-xl border flex flex-col text-left transition-all ${
                     cardGame === "poker"
-                      ? "bg-accent-soft border-accent text-secondary"
+                      ? "game-mode-card--active bg-accent-soft border-accent text-secondary"
                       : "bg-surface-muted border-default text-muted hover:border-default"
                   }`}
                 >
@@ -787,27 +808,6 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </span>
                   <span className="text-[10px] leading-relaxed text-muted">
                     {t.lobby.gamePokerDesc}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSelectTowerMaster}
-                  className={`relative p-4 rounded-xl border flex flex-col text-left transition-all ${
-                    cardGame === "tower_master"
-                      ? "bg-accent-soft border-accent text-secondary"
-                      : "bg-surface-muted border-default text-muted hover:border-default"
-                  }`}
-                >
-                  <span className="absolute top-2 right-2 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-success-muted text-success border border-success">
-                    MVP
-                  </span>
-                  <span className="font-extrabold text-xs text-primary mb-1 flex items-center space-x-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-accent" />
-                    <span>{t.lobby.gameTower}</span>
-                  </span>
-                  <span className="text-[10px] leading-relaxed">
-                    {t.lobby.gameTowerDesc}
                   </span>
                 </button>
               </div>
@@ -825,7 +825,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   onClick={() => setGameMode("bots")}
                   className={`p-4 rounded-xl border flex flex-col text-left transition-all ${
                     gameMode === "bots"
-                      ? "bg-accent-soft border-accent text-secondary"
+                      ? "game-mode-card--active bg-accent-soft border-accent text-secondary"
                       : "bg-surface-muted border-default text-muted hover:border-default"
                   }`}
                 >
@@ -844,7 +844,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   onClick={() => setGameMode("pass_and_play")}
                   className={`p-4 rounded-xl border flex flex-col text-left transition-all ${
                     gameMode === "pass_and_play"
-                      ? "bg-accent-soft/30 border-accent text-secondary"
+                      ? "game-mode-card--active bg-accent-soft/30 border-accent text-secondary"
                       : "bg-surface-muted border-default text-muted hover:border-default"
                   }`}
                 >
@@ -864,7 +864,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                   onClick={() => setGameMode("online")}
                   className={`p-4 rounded-xl border flex flex-col text-left transition-all ${
                     gameMode === "online"
-                      ? "bg-success-muted/30 border-success text-success"
+                      ? "game-mode-card--active bg-success-muted/30 border-success text-success"
                       : "bg-surface-muted border-default text-muted hover:border-default"
                   }`}
                 >
@@ -889,7 +889,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                     onClick={() => setIsOnlineRoleHost(true)}
                     className={`flex-1 py-2 font-bold text-xs rounded-lg border transition-all ${
                       isOnlineRoleHost
-                        ? "bg-emerald-600/20 border-success text-success"
+                        ? "bg-accent-soft border-accent text-accent"
                         : "bg-surface border-default text-muted hover:text-secondary"
                     }`}
                   >
@@ -900,7 +900,7 @@ export const Lobby: React.FC<LobbyProps> = ({
                     onClick={() => setIsOnlineRoleHost(false)}
                     className={`flex-1 py-2 font-bold text-xs rounded-lg border transition-all ${
                       !isOnlineRoleHost
-                        ? "bg-emerald-600/20 border-success text-success"
+                        ? "bg-accent-soft border-accent text-accent"
                         : "bg-surface border-default text-muted hover:text-secondary"
                     }`}
                   >

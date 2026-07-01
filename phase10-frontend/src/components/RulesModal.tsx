@@ -57,17 +57,17 @@ function RulesSections({ sections }: { sections: RulesSection[] }) {
 
 export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose }) => {
   const { t } = useI18n();
-  const [activeGame, setActiveGame] = useState<GameId>('phase10');
+  const [activeGame, setActiveGame] = useState<GameId>('tower');
   const [phase10Tab, setPhase10Tab] = useState<Phase10Tab>('how');
   const p10 = t.rules.phase10;
 
   if (!isOpen) return null;
 
   const games: { id: GameId; label: string; icon: React.ReactNode }[] = [
+    { id: 'tower', label: t.rules.tabTower, icon: <Building2 className="w-3.5 h-3.5" /> },
     { id: 'phase10', label: t.rules.tabPhase10, icon: <Layers className="w-3.5 h-3.5" /> },
     { id: 'truco', label: t.rules.tabTruco, icon: <Swords className="w-3.5 h-3.5" /> },
     { id: 'poker', label: t.rules.tabPoker, icon: <Spade className="w-3.5 h-3.5" /> },
-    { id: 'tower', label: t.rules.tabTower, icon: <Building2 className="w-3.5 h-3.5" /> },
   ];
 
   return (

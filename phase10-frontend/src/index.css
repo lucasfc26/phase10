@@ -1,118 +1,126 @@
 @import "tailwindcss";
 
-/* ── Light: branco gelo + azul escuro ── */
+/* ── Light: pergaminho, ouro e castanho (Mestre das Torres) ── */
 :root,
 [data-theme='light'] {
   color-scheme: light;
 
-  --bg-app: #eef2f8;
-  --bg-surface: #f7f9fc;
-  --bg-surface-raised: #ffffff;
-  --bg-surface-muted: #e4eaf3;
-  --bg-overlay: rgba(15, 39, 68, 0.55);
+  --bg-app: #ebe3d6;
+  --bg-surface: #f7f2ea;
+  --bg-surface-raised: #fffdf8;
+  --bg-surface-muted: #e5d9c8;
+  --bg-overlay: rgba(42, 26, 18, 0.62);
 
-  --border: #c5d0e0;
-  --border-subtle: #d8e0ec;
+  --border: #c9b89a;
+  --border-subtle: #ddd0bc;
 
-  --text-primary: #0f2744;
-  --text-secondary: #2d4a6f;
-  --text-muted: #5a7291;
-  --text-accent: #1e3a5f;
-  --text-on-accent: #f7f9fc;
+  --text-primary: #2a1a12;
+  --text-secondary: #4a3428;
+  --text-muted: #7a6558;
+  --text-accent: #5e1914;
+  --text-on-accent: #fff8ec;
 
-  --accent: #1e3a5f;
-  --accent-hover: #152d4d;
-  --accent-soft: #e4eaf3;
+  --accent: #947439;
+  --accent-hover: #7d622f;
+  --accent-soft: #f0e4c8;
 
-  --badge-bg: #e4eaf3;
-  --badge-text: #1e3a5f;
-  --badge-border: #c5d0e0;
+  --badge-bg: #f0e4c8;
+  --badge-text: #5e1914;
+  --badge-border: #c9b89a;
 
-  --felt: #1a3d5c;
-  --felt-dark: #142f47;
-  --felt-border: #2a5070;
-  --felt-label: rgba(228, 234, 243, 0.85);
+  --felt: #3d2b1f;
+  --felt-dark: #2a1a12;
+  --felt-border: #6b4a32;
+  --felt-label: rgba(240, 228, 200, 0.88);
 
-  --danger: #9b3d3d;
-  --danger-muted: #f5e8e8;
-  --danger-border: #e8c4c4;
-  --success: #2d5a4a;
-  --success-muted: #e6f0ec;
-  --success-border: #b8d4c8;
+  --danger: #8b2e2a;
+  --danger-muted: #f5e6e4;
+  --danger-border: #d4a8a4;
+  --success: #6b5a32;
+  --success-muted: #f0ead8;
+  --success-border: #c9b89a;
 
-  --card-select-ring: #1e3a5f;
-  --card-face-bg: linear-gradient(180deg, #ffffff 0%, #f8f6f1 48%, #efece4 100%);
-  --card-face-border: #c5d0e0;
+  --card-select-ring: #c5a059;
+  --card-face-bg: linear-gradient(180deg, #fffdf8 0%, #f7f2ea 48%, #ebe3d6 100%);
+  --card-face-border: #c9b89a;
   --card-face-shadow-inset: rgba(255, 255, 255, 0.95);
-  --card-pip-red: #991b1b;
-  --card-pip-yellow: #854d0e;
-  --card-pip-green: #166534;
-  --card-pip-blue: #1e40af;
-  --card-pip-wild: #ecfdf5;
-  --card-pip-skip: #fff1f2;
-  --shadow-color: rgba(15, 39, 68, 0.1);
-  --selection-bg: rgba(30, 58, 95, 0.18);
-  --selection-text: #0f2744;
+  --card-pip-red: #8b2e2a;
+  --card-pip-yellow: #947439;
+  --card-pip-green: #4a5c32;
+  --card-pip-blue: #3d4a6b;
+  --card-pip-wild: #f0ead8;
+  --card-pip-skip: #f5e6e4;
+  --shadow-color: rgba(42, 26, 18, 0.14);
+  --selection-bg: rgba(197, 160, 89, 0.28);
+  --selection-text: #2a1a12;
 
-  --toggle-bg: #ffffff;
-  --toggle-hover: #e4eaf3;
+  --toggle-bg: #fffdf8;
+  --toggle-hover: #f0e4c8;
+
+  --tower-gold: #c5a059;
+  --tower-burgundy: #5e1914;
+  --tower-stone: #4a3428;
 }
 
-/* ── Dark: azul escuro monocromático + cinza claro ── */
+/* ── Dark: castanho profundo, ouro e bordô (Main.png / BackCard.png) ── */
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --bg-app: #080f1a;
-  --bg-surface: #0f1a2e;
-  --bg-surface-raised: #162238;
-  --bg-surface-muted: #1a2438;
-  --bg-overlay: rgba(0, 0, 0, 0.78);
+  --bg-app: #1a100a;
+  --bg-surface: #2b1d14;
+  --bg-surface-raised: #3d2b1f;
+  --bg-surface-muted: #322218;
+  --bg-overlay: rgba(10, 6, 4, 0.82);
 
-  --border: #2a3a52;
-  --border-subtle: #1f2d42;
+  --border: #5c3d28;
+  --border-subtle: #3d2b1f;
 
-  --text-primary: #e8edf4;
-  --text-secondary: #b8c4d4;
-  --text-muted: #7a8ca3;
-  --text-accent: #d1dae6;
-  --text-on-accent: #0f1a2e;
+  --text-primary: #f0e6d6;
+  --text-secondary: #d4c4a8;
+  --text-muted: #9a8470;
+  --text-accent: #e8d4a8;
+  --text-on-accent: #1a100a;
 
-  --accent: #c5d0de;
-  --accent-hover: #dce4ed;
-  --accent-soft: #1c2a42;
+  --accent: #c5a059;
+  --accent-hover: #d4af37;
+  --accent-soft: #3d2518;
 
-  --badge-bg: #1c2a42;
-  --badge-text: #d1dae6;
-  --badge-border: #2a3a52;
+  --badge-bg: #3d2518;
+  --badge-text: #e8d4a8;
+  --badge-border: #5c3d28;
 
-  --felt: #0d1626;
-  --felt-dark: #080f1a;
-  --felt-border: #243248;
-  --felt-label: rgba(209, 218, 230, 0.75);
+  --felt: #1f140e;
+  --felt-dark: #140d08;
+  --felt-border: #5c3d28;
+  --felt-label: rgba(232, 212, 168, 0.78);
 
-  --danger: #d4a8a8;
-  --danger-muted: #1f1820;
-  --danger-border: #4a3540;
-  --success: #a8b8c8;
-  --success-muted: #141c28;
-  --success-border: #2a3a4a;
+  --danger: #c45c52;
+  --danger-muted: #2a1410;
+  --danger-border: #6b2e28;
+  --success: #c5a059;
+  --success-muted: #2a2014;
+  --success-border: #5c3d28;
 
-  --card-select-ring: #c5d0de;
-  --card-face-bg: linear-gradient(180deg, #1e293b 0%, #161f2e 48%, #0f172a 100%);
-  --card-face-border: #334155;
-  --card-face-shadow-inset: rgba(255, 255, 255, 0.08);
-  --card-pip-red: #fca5a5;
-  --card-pip-yellow: #fde68a;
-  --card-pip-green: #86efac;
-  --card-pip-blue: #93c5fd;
-  --card-pip-wild: #d1fae5;
-  --card-pip-skip: #fff1f2;
-  --shadow-color: rgba(0, 0, 0, 0.4);
-  --selection-bg: rgba(197, 208, 222, 0.14);
-  --selection-text: #e8edf4;
+  --card-select-ring: #d4af37;
+  --card-face-bg: linear-gradient(180deg, #3d2b1f 0%, #2b1d14 48%, #1a100a 100%);
+  --card-face-border: #5c3d28;
+  --card-face-shadow-inset: rgba(255, 255, 255, 0.06);
+  --card-pip-red: #e8a8a0;
+  --card-pip-yellow: #e8d4a8;
+  --card-pip-green: #a8c878;
+  --card-pip-blue: #a8b8d8;
+  --card-pip-wild: #d4e8c8;
+  --card-pip-skip: #f5e6e4;
+  --shadow-color: rgba(0, 0, 0, 0.45);
+  --selection-bg: rgba(197, 160, 89, 0.22);
+  --selection-text: #f0e6d6;
 
-  --toggle-bg: #162238;
-  --toggle-hover: #1c2a42;
+  --toggle-bg: #3d2b1f;
+  --toggle-hover: #4a3428;
+
+  --tower-gold: #c5a059;
+  --tower-burgundy: #8b2e2a;
+  --tower-stone: #6b4a32;
 }
 
 body {
@@ -136,7 +144,11 @@ body {
 }
 
 .bg-header-fade {
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-surface) 80%, transparent), transparent);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--tower-gold) 12%, transparent),
+    transparent
+  );
 }
 
 .bg-app { background-color: var(--bg-app); }
@@ -210,6 +222,9 @@ body {
   background: linear-gradient(160deg, var(--felt) 0%, var(--felt-dark) 100%);
   border: 1px solid var(--felt-border);
   border-radius: 0.75rem;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tower-gold) 18%, transparent) inset,
+    0 8px 24px var(--shadow-color);
 }
 
 .felt-label {
@@ -1072,4 +1087,64 @@ body {
 .playing-card--prompt-discard:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 16px var(--shadow-color);
+}
+
+/* ── Home hero (Main.png) ── */
+.home-screen {
+  position: relative;
+  min-height: calc(100vh - 4rem);
+}
+
+.home-screen__banner {
+  position: absolute;
+  inset: 0;
+  background: url('/Main.png') center top / cover no-repeat;
+  pointer-events: none;
+}
+
+.home-screen__overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(26, 16, 10, 0.15) 0%,
+    rgba(26, 16, 10, 0.55) 42%,
+    color-mix(in srgb, var(--bg-app) 92%, transparent) 78%,
+    var(--bg-app) 100%
+  );
+  pointer-events: none;
+}
+
+.home-screen__panel {
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tower-gold) 45%, var(--border));
+  border-radius: 1rem;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tower-gold) 18%, transparent) inset,
+    0 12px 40px var(--shadow-color);
+  backdrop-filter: blur(8px);
+}
+
+/* ── Painéis com referência ao verso (BackCard.png) ── */
+.panel-tower {
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--felt) 94%, #000) 0%, var(--felt-dark) 100%);
+  border: 1px solid var(--felt-border);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tower-gold) 22%, transparent) inset,
+    0 8px 24px var(--shadow-color);
+}
+
+.lobby-setup-card {
+  border: 1px solid color-mix(in srgb, var(--tower-gold) 28%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--tower-gold) 12%, transparent) inset,
+    0 12px 32px var(--shadow-color);
+}
+
+.game-mode-card--active {
+  background: color-mix(in srgb, var(--accent-soft) 85%, var(--bg-surface)) !important;
+  border-color: var(--tower-gold) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tower-gold) 35%, transparent) inset;
 }

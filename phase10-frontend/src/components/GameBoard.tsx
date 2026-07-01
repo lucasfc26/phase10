@@ -3010,7 +3010,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           </span>
                         )}
                         {player.hasLaidDownThisRound && (
-                          <span className="absolute -top-1 -right-1 bg-emerald-700 border border-default rounded-full w-3.5 h-3.5 flex items-center justify-center" title={isTowerMaster ? 'Baixou desafio' : 'Baixou fase'}>
+                          <span className="absolute -top-1 -right-1 bg-accent border border-default rounded-full w-3.5 h-3.5 flex items-center justify-center" title={isTowerMaster ? 'Baixou desafio' : 'Baixou fase'}>
                             <Check className="w-2 h-2 text-white" />
                           </span>
                         )}
@@ -3110,7 +3110,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               {isMyTurn && turnState === 'playing' && selectedHitCard && activePlayer.hasLaidDownThisRound && !isBuildingPhase && (
                                 <button
                                   onClick={() => handleHitCard(layout.playerId, grpIdx)}
-                                  className="w-10 h-12 bg-emerald-600 hover:bg-emerald-500 border border-success text-white rounded-md shrink-0 flex flex-col items-center justify-center font-bold text-[9px] cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
+                                  className="w-10 h-12 btn-primary border border-accent text-on-accent rounded-md shrink-0 flex flex-col items-center justify-center font-bold text-[9px] cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
                                 >
                                   <CornerRightDown className="w-3.5 h-3.5" />
                                   <span>BATER</span>
@@ -3136,7 +3136,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
               {/* Draw Pile Stack */}
               <div className="flex flex-col items-center space-y-2">
-                <span className="text-xs uppercase font-medium tracking-wide text-emerald-200/70">Compra</span>
+                <span className="text-xs uppercase font-medium tracking-wide felt-label">Compra</span>
 
                 <button
                   onClick={() => handleDrawCard('draw')}
