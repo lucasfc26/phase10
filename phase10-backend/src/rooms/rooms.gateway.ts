@@ -530,7 +530,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
       const masked = this.onlineGameService.maskStateForPlayer(gameRoom, memberId);
 
-      return { ok: true, room: masked, privateMessages: result.privateMessages };
+      return { ok: true, room: masked, privateMessages: result.privateMessages, privateReveals: result.privateReveals };
 
     } catch (err) {
 

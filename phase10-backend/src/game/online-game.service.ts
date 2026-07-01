@@ -218,7 +218,7 @@ export class OnlineGameService {
     state: AnyGameState,
     memberId: string,
     action: GameActionDto,
-  ): { state: AnyGameState; log?: string; logType?: string; skipLogs?: string[]; privateMessages?: string[] } {
+  ): { state: AnyGameState; log?: string; logType?: string; skipLogs?: string[]; privateMessages?: string[]; privateReveals?: Array<{ title: string; cards: import('../common/game.types').Card[] }> } {
     const cardGame = getCardGameFromState(state);
 
     if (cardGame === 'truco') {
@@ -239,6 +239,7 @@ export class OnlineGameService {
       logType: result.logType,
       skipLogs: result.skipLogs,
       privateMessages: result.privateMessages,
+      privateReveals: result.privateReveals,
     };
   }
 

@@ -13,7 +13,7 @@ import {
   useCompactHandLayout,
   type HandSortMode,
 } from '../lib/handFan';
-import { cardPipClass, isTowerPowerCard, towerPowerCategoryLabel } from '../lib/cards';
+import { cardPipClass, isTowerPowerCard, towerPowerCategoryLabel, resolveTowerCardImageSrc } from '../lib/cards';
 import {
   getCardDisplayInfo,
   getLegendaryDisplayInfo,
@@ -40,6 +40,7 @@ import { PassAndPlayTransition } from './PassAndPlayTransition';
 import { ToastStack, type ToastItem, type ToastType } from './ToastStack';
 import { TowerPromptModal, type TowerPromptState } from './TowerPromptModal';
 import { TowerAbsorbModal } from './TowerAbsorbModal';
+import { TowerRevealModal, type TowerRevealState } from './TowerRevealModal';
 import { absorbEnergyGain, isAbsorbablePowerCard } from '../games/towerMaster/absorb';
 import { RoomSession } from '../services/onlineApi';
 import { connectOnlineSocket, emitGameAction, getRoomDeletedMessage } from '../services/onlineSocket';
@@ -60,10 +61,11 @@ function TowerInspectedCardPreview({ card }: { card: Card }) {
   const pipClass = cardPipClass(card.color);
 
   if (isPower) {
+    const imageSrc = resolveTowerCardImageSrc(card);
     return (
       <div className={`playing-card playing-card--tower playing-card--tower-${powerCategory} tower-inspected-card`}>
         <div className="playing-card__power-art">
-          <img src={card.imageSrc} alt="" draggable={false} />
+          {imageSrc && <img src={imageSrc} alt="" draggable={false} />}
         </div>
         <div className="playing-card__power-name">{card.powerName}</div>
       </div>
@@ -228,9 +230,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     eligibleIds: Set<string>;
   } | null>(null);
   const [towerAbsorbOpen, setTowerAbsorbOpen] = useState(false);
+  const [towerReveal, setTowerReveal] = useState<TowerRevealState | null>(null);
   const towerPromptResolverRef = useRef<((value: unknown) => void) | null>(null);
   const towerHandPickResolverRef = useRef<((card: Card | null) => void) | null>(null);
   const towerInfoToastsRef = useRef<string[]>([]);
+  const towerRevealPendingRef = useRef<TowerRevealState | null>(null);
   const lastTowerPowerPlayedRef = useRef<Card | null>(null);
 
   // Skip selector target modal
@@ -380,12 +384,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     error?: string;
     room?: GameRoom;
     privateMessages?: string[];
+    privateReveals?: TowerRevealState[];
   }) => {
     if (result?.error) {
       showToast(result.error, 'error');
       return false;
     }
     result.privateMessages?.forEach((message) => showToast(message, 'info'));
+    if (result.privateReveals?.[0]) {
+      setTowerReveal(result.privateReveals[0]);
+    }
     if (result?.room) applyOnlineGameState(result.room);
     return true;
   };
@@ -742,7 +750,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
       if (active.towerCharacterClass === 'guerreiro' && Math.random() < 0.15) {
         const opponents = players.filter(
-          (player, index) => index !== activeIndex && player.cards.length > 0,
+          (player, index) =>
+            index !== activeIndex && player.cards.length > 0 && !player.towerAttackImmune,
         );
         if (opponents.length > 0) {
           const victim = opponents[Math.floor(Math.random() * opponents.length)];
@@ -873,6 +882,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
 
     towerInfoToastsRef.current = [];
+    towerRevealPendingRef.current = null;
     const handAfterPowerRef = { cards: [] as Card[] };
     const cost = options?.copyMode ? 0 : (card.powerCost ?? 0);
 
@@ -1017,9 +1027,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
         case 'espiao':
           if (finalTarget) {
-            towerInfoToastsRef.current.push(
-              `${finalTarget.name} tem: ${finalTarget.cards.map(describeCard).join(', ') || 'Sem cartas'}`,
-            );
+            towerRevealPendingRef.current = {
+              title: `Mão de ${finalTarget.name}`,
+              cards: finalTarget.cards.map((handCard) => ({ ...handCard })),
+            };
             addLog(`${caster.name} espionou a mão de ${finalTarget.name}.`, 'action');
           }
           break;
@@ -1116,8 +1127,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         }
 
         case 'visao': {
-          const topCards = drawPile.slice(-5).reverse().map(describeCard).join(', ') || 'Monte vazio';
-          towerInfoToastsRef.current.push(`Topo do monte: ${topCards}`);
+          const topCards = drawPile.slice(-5).reverse().map((handCard) => ({ ...handCard }));
+          towerRevealPendingRef.current = {
+            title: 'Topo do monte',
+            cards: topCards,
+          };
           addLog(`${caster.name} usou Visão para olhar o topo do monte.`, 'success');
           break;
         }
@@ -1287,6 +1301,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     });
 
     towerInfoToastsRef.current.forEach((message) => showToast(message, 'info'));
+    if (towerRevealPendingRef.current) {
+      setTowerReveal(towerRevealPendingRef.current);
+      towerRevealPendingRef.current = null;
+    }
 
     if (towerInspectedCardId === card.id) {
       setTowerInspectedCardId(null);
@@ -1513,11 +1531,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
 
     if (classId === 'guerreiro') {
-      const opponentLayouts = room.laidDownPhases.filter(
-        (layout) => layout.playerId !== myPlayer.id && layout.groups.flat().length > 0,
-      );
+      const opponentLayouts = room.laidDownPhases.filter((layout) => {
+        if (layout.playerId === myPlayer.id || layout.groups.flat().length === 0) return false;
+        const victim = room.players.find((player) => player.id === layout.playerId);
+        return victim && !victim.towerAttackImmune;
+      });
       if (opponentLayouts.length === 0) {
-        showToast('Nenhum adversário tem cartas baixadas.', 'warning');
+        showToast('Nenhum adversário vulnerável com cartas baixadas.', 'warning');
         return;
       }
       if (isOnline) {
@@ -1559,10 +1579,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     if (classId === 'ladino') {
       const targets = room.players.filter(
-        (player) => player.id !== myPlayer.id && player.cards.length > 0,
+        (player) => player.id !== myPlayer.id && player.cards.length > 0 && !player.towerAttackImmune,
       );
       if (targets.length === 0) {
-        showToast('Nenhum adversário com cartas na mão.', 'warning');
+        showToast('Nenhum adversário vulnerável com cartas na mão.', 'warning');
         return;
       }
       if (isOnline) {
@@ -1671,7 +1691,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const handleAbsorbConfirm = (powerCardIds: string[]) => {
-    if (!powerCardIds.length || !canOpenAbsorb) return;
+    if (!powerCardIds.length) return;
+    if (!isTowerMaster || !isMyTurn || turnState !== 'playing' || !room.hasDrawnThisTurn) return;
 
     const energyBefore = myPlayer.energy ?? 3;
     const actualGain = absorbEnergyGain(energyBefore, powerCardIds.length);
@@ -3120,17 +3141,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 <button
                   onClick={() => handleDrawCard('draw')}
                   disabled={!isMyTurn || turnState !== 'drawing' || isActionPending}
-                  className={`w-28 h-40 rounded-lg border-2 transition-all relative flex flex-col items-center justify-center bg-stone-100 shadow-md ${
+                  className={`playing-card playing-card--discard playing-card--deck-back transition-all ${
                     isMyTurn && turnState === 'drawing' && !isActionPending
-                      ? 'border-accent hover:scale-[1.02] cursor-pointer'
-                      : 'border-stone-400 cursor-not-allowed opacity-70'
+                      ? 'playing-card--selected border-accent hover:scale-105 active:scale-95 cursor-pointer'
+                      : 'cursor-not-allowed opacity-80'
                   }`}
+                  aria-label="Comprar do monte"
                 >
-                  <div className="flex flex-col items-center justify-center text-stone-800">
-                    <span className="text-2xl font-bold font-serif text-accent mb-1">P10</span>
-                    <span className="text-[10px] font-medium uppercase text-muted">Comprar</span>
-                  </div>
-                  <span className="absolute bottom-2 bg-surface-raised text-secondary font-mono text-[10px] px-2 py-0.5 rounded-full">
+                  <span className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-surface-raised/95 text-secondary font-mono text-[10px] px-2 py-0.5 rounded-full z-10 shadow-sm">
                     {room.drawPile.length} restando
                   </span>
                 </button>
@@ -3174,7 +3192,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             </div>
 
                             <div className="playing-card__power-art">
-                              <img src={topDiscard.imageSrc} alt="" draggable={false} />
+                              <img src={resolveTowerCardImageSrc(topDiscard) ?? ''} alt="" draggable={false} />
                             </div>
 
                             <div className="playing-card__power-name">
@@ -3785,7 +3803,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         </div>
 
                         <div className="playing-card__power-art">
-                          <img src={card.imageSrc} alt="" draggable={false} />
+                          <img src={resolveTowerCardImageSrc(card) ?? ''} alt="" draggable={false} />
                         </div>
 
                         <div className="playing-card__power-name">
@@ -3928,6 +3946,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           currentEnergy={myPlayer.energy ?? 3}
           onConfirm={handleAbsorbConfirm}
           onCancel={() => setTowerAbsorbOpen(false)}
+        />
+      )}
+
+      {towerReveal && (
+        <TowerRevealModal
+          reveal={towerReveal}
+          onClose={() => setTowerReveal(null)}
         />
       )}
 

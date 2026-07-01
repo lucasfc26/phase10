@@ -11,38 +11,41 @@ export type TowerPowerDefinition = {
   rarity: TowerCardRarity;
   cost: number;
   copies: number;
+  imageSrc: string;
 };
 
+const cardImage = (folder: string, file: string) => `/Cards/${folder}/${file}.png`;
+
 export const TOWER_POWER_CARDS: TowerPowerDefinition[] = [
-  { id: 'roubo', name: 'Roubo', category: 'attack', rarity: 'uncommon', cost: 1, copies: 2 },
-  { id: 'quebra_sequencia', name: 'Quebra Sequência', category: 'attack', rarity: 'rare', cost: 3, copies: 1 },
-  { id: 'destruicao', name: 'Destruição', category: 'attack', rarity: 'rare', cost: 2, copies: 1 },
-  { id: 'inversao', name: 'Inversão', category: 'attack', rarity: 'rare', cost: 4, copies: 1 },
-  { id: 'congelar', name: 'Congelar', category: 'attack', rarity: 'uncommon', cost: 2, copies: 2 },
-  { id: 'maldicao', name: 'Maldição', category: 'attack', rarity: 'uncommon', cost: 1, copies: 2 },
-  { id: 'bloqueio', name: 'Bloqueio', category: 'attack', rarity: 'uncommon', cost: 2, copies: 2 },
-  { id: 'espiao', name: 'Espião', category: 'attack', rarity: 'uncommon', cost: 1, copies: 2 },
-  { id: 'cacador', name: 'Caçador', category: 'attack', rarity: 'rare', cost: 3, copies: 1 },
-  { id: 'escudo', name: 'Escudo', category: 'defense', rarity: 'uncommon', cost: 1, copies: 2 },
-  { id: 'reflexao', name: 'Reflexão', category: 'defense', rarity: 'rare', cost: 2, copies: 1 },
-  { id: 'armadura', name: 'Armadura', category: 'defense', rarity: 'rare', cost: 3, copies: 1 },
-  { id: 'contra_magica', name: 'Contra Mágica', category: 'defense', rarity: 'rare', cost: 2, copies: 1 },
-  { id: 'sorte', name: 'Sorte', category: 'defense', rarity: 'uncommon', cost: 1, copies: 2 },
-  { id: 'segunda_chance', name: 'Segunda Chance', category: 'manipulation', rarity: 'uncommon', cost: 1, copies: 2 },
-  { id: 'reciclagem', name: 'Reciclagem', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2 },
-  { id: 'visao', name: 'Visão', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2 },
-  { id: 'troca', name: 'Troca', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2 },
-  { id: 'reforco', name: 'Reforço', category: 'manipulation', rarity: 'rare', cost: 3, copies: 1 },
-  { id: 'cura', name: 'Cura', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2 },
-  { id: 'terremoto', name: 'Terremoto', category: 'chaos', rarity: 'epic', cost: 5, copies: 1 },
-  { id: 'tempestade', name: 'Tempestade', category: 'chaos', rarity: 'epic', cost: 5, copies: 1 },
-  { id: 'eclipse', name: 'Eclipse', category: 'chaos', rarity: 'epic', cost: 4, copies: 1 },
-  { id: 'colapso', name: 'Colapso', category: 'chaos', rarity: 'epic', cost: 4, copies: 1 },
-  { id: 'tempo_congelado', name: 'Tempo Congelado', category: 'chaos', rarity: 'epic', cost: 5, copies: 1 },
-  { id: 'roubo_supremo', name: 'Roubo Supremo', category: 'epic', rarity: 'epic', cost: 5, copies: 1 },
-  { id: 'reset', name: 'Reset', category: 'epic', rarity: 'epic', cost: 5, copies: 1 },
-  { id: 'julgamento', name: 'Julgamento', category: 'epic', rarity: 'epic', cost: 4, copies: 1 },
-  { id: 'destino', name: 'Destino', category: 'epic', rarity: 'epic', cost: 5, copies: 1 },
+  { id: 'roubo', name: 'Roubo', category: 'attack', rarity: 'uncommon', cost: 1, copies: 2, imageSrc: cardImage('ataque', 'roubo') },
+  { id: 'quebra_sequencia', name: 'Quebra Sequência', category: 'attack', rarity: 'rare', cost: 3, copies: 1, imageSrc: cardImage('ataque', 'quebra_sequencia') },
+  { id: 'destruicao', name: 'Destruição', category: 'attack', rarity: 'rare', cost: 2, copies: 1, imageSrc: cardImage('ataque', 'destruicao') },
+  { id: 'inversao', name: 'Inversão', category: 'attack', rarity: 'rare', cost: 4, copies: 1, imageSrc: cardImage('ataque', 'inversao') },
+  { id: 'congelar', name: 'Congelar', category: 'attack', rarity: 'uncommon', cost: 2, copies: 2, imageSrc: cardImage('ataque', 'congelar') },
+  { id: 'maldicao', name: 'Maldição', category: 'attack', rarity: 'uncommon', cost: 1, copies: 2, imageSrc: cardImage('ataque', 'maldicao') },
+  { id: 'bloqueio', name: 'Bloqueio', category: 'attack', rarity: 'uncommon', cost: 2, copies: 2, imageSrc: cardImage('ataque', 'bloqueio') },
+  { id: 'espiao', name: 'Espião', category: 'attack', rarity: 'uncommon', cost: 1, copies: 2, imageSrc: cardImage('ataque', 'espiao') },
+  { id: 'cacador', name: 'Caçador', category: 'attack', rarity: 'rare', cost: 3, copies: 1, imageSrc: cardImage('ataque', 'cacador') },
+  { id: 'escudo', name: 'Escudo', category: 'defense', rarity: 'uncommon', cost: 1, copies: 2, imageSrc: cardImage('defesa', 'escudo') },
+  { id: 'reflexao', name: 'Reflexão', category: 'defense', rarity: 'rare', cost: 2, copies: 1, imageSrc: cardImage('defesa', 'reflexao') },
+  { id: 'armadura', name: 'Armadura', category: 'defense', rarity: 'rare', cost: 3, copies: 1, imageSrc: cardImage('defesa', 'armadura') },
+  { id: 'contra_magica', name: 'Contra Mágica', category: 'defense', rarity: 'rare', cost: 2, copies: 1, imageSrc: cardImage('defesa', 'contra_magica') },
+  { id: 'sorte', name: 'Sorte', category: 'defense', rarity: 'uncommon', cost: 1, copies: 2, imageSrc: cardImage('defesa', 'sorte') },
+  { id: 'segunda_chance', name: 'Segunda Chance', category: 'manipulation', rarity: 'uncommon', cost: 1, copies: 2, imageSrc: cardImage('manipulacao', 'segunda_chance') },
+  { id: 'reciclagem', name: 'Reciclagem', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2, imageSrc: cardImage('manipulacao', 'reciclagem') },
+  { id: 'visao', name: 'Visão', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2, imageSrc: cardImage('manipulacao', 'visao') },
+  { id: 'troca', name: 'Troca', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2, imageSrc: cardImage('manipulacao', 'troca') },
+  { id: 'reforco', name: 'Reforço', category: 'manipulation', rarity: 'rare', cost: 3, copies: 1, imageSrc: cardImage('manipulacao', 'reforco') },
+  { id: 'cura', name: 'Cura', category: 'manipulation', rarity: 'uncommon', cost: 2, copies: 2, imageSrc: cardImage('manipulacao', 'cura') },
+  { id: 'terremoto', name: 'Terremoto', category: 'chaos', rarity: 'epic', cost: 5, copies: 1, imageSrc: cardImage('caos', 'terremoto') },
+  { id: 'tempestade', name: 'Tempestade', category: 'chaos', rarity: 'epic', cost: 5, copies: 1, imageSrc: cardImage('caos', 'tempestade') },
+  { id: 'eclipse', name: 'Eclipse', category: 'chaos', rarity: 'epic', cost: 4, copies: 1, imageSrc: cardImage('caos', 'eclipse') },
+  { id: 'colapso', name: 'Colapso', category: 'chaos', rarity: 'epic', cost: 4, copies: 1, imageSrc: cardImage('caos', 'colapso') },
+  { id: 'tempo_congelado', name: 'Tempo Congelado', category: 'chaos', rarity: 'epic', cost: 5, copies: 1, imageSrc: cardImage('caos', 'tempo_congelado') },
+  { id: 'roubo_supremo', name: 'Roubo Supremo', category: 'epic', rarity: 'epic', cost: 5, copies: 1, imageSrc: cardImage('epicas', 'roubo_supremo') },
+  { id: 'reset', name: 'Reset', category: 'epic', rarity: 'epic', cost: 5, copies: 1, imageSrc: cardImage('epicas', 'reset') },
+  { id: 'julgamento', name: 'Julgamento', category: 'epic', rarity: 'epic', cost: 4, copies: 1, imageSrc: cardImage('epicas', 'julgamento') },
+  { id: 'destino', name: 'Destino', category: 'epic', rarity: 'epic', cost: 5, copies: 1, imageSrc: cardImage('epicas', 'destino') },
 ];
 
 export function createTowerPowerCard(definition: TowerPowerDefinition, copyIndex: number, uniqueId: string): Card {
@@ -56,6 +59,7 @@ export function createTowerPowerCard(definition: TowerPowerDefinition, copyIndex
     powerCategory: definition.category,
     powerCost: definition.cost,
     rarity: definition.rarity,
+    imageSrc: definition.imageSrc,
   };
 }
 

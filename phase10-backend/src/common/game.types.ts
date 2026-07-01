@@ -11,6 +11,7 @@ export interface Card {
   powerCategory?: string;
   powerCost?: number;
   rarity?: string;
+  imageSrc?: string;
 }
 
 export type PhaseType =

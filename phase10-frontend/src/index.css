@@ -401,6 +401,13 @@ body {
   border-color: var(--accent);
 }
 
+.playing-card--deck-back {
+  background: url('/BackCard.png') center / cover no-repeat;
+  border-color: var(--card-face-border);
+  padding: 0;
+  overflow: hidden;
+}
+
 .playing-card--back > div {
   border-radius: inherit;
 }

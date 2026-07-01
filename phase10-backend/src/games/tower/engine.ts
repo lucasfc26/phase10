@@ -12,7 +12,12 @@ export type TowerActionResult = {
   log?: string;
   logType?: string;
   privateMessages?: string[];
+  privateReveals?: Array<{ title: string; cards: Card[] }>;
 };
+
+function isProtectedFromTowerActions(player: Player): boolean {
+  return !!player.towerAttackImmune;
+}
 
 export function isTowerMaster(gameRoom: GameRoom): boolean {
   return gameRoom.settings.cardGame === 'tower_master';
@@ -138,7 +143,8 @@ export function applyTowerTurnStart(
 
   if (active.towerCharacterClass === 'guerreiro' && Math.random() < 0.15) {
     const opponents = players.filter(
-      (player, index) => index !== turnIndex && player.cards.length > 0,
+      (player, index) =>
+        index !== turnIndex && player.cards.length > 0 && !isProtectedFromTowerActions(player),
     );
     if (opponents.length > 0) {
       const victim = opponents[Math.floor(Math.random() * opponents.length)];
@@ -247,6 +253,7 @@ export function applyTowerPower(
   }
 
   const privateMessages: string[] = [];
+  const privateReveals: Array<{ title: string; cards: Card[] }> = [];
   const logs: string[] = [];
 
   let effectiveTargetId = params.targetPlayerId ?? null;
@@ -364,9 +371,10 @@ export function applyTowerPower(
 
     case 'espiao':
       if (finalTarget) {
-        privateMessages.push(
-          `${finalTarget.name} tem: ${finalTarget.cards.map(describeCard).join(', ') || 'Sem cartas'}`,
-        );
+        privateReveals.push({
+          title: `Mão de ${finalTarget.name}`,
+          cards: finalTarget.cards.map((handCard) => ({ ...handCard })),
+        });
         logs.push(`${caster.name} espionou a mão de ${finalTarget.name}.`);
       }
       break;
@@ -466,13 +474,11 @@ export function applyTowerPower(
     }
 
     case 'visao': {
-      const topCards =
-        drawPile
-          .slice(-5)
-          .reverse()
-          .map(describeCard)
-          .join(', ') || 'Monte vazio';
-      privateMessages.push(`Topo do monte: ${topCards}`);
+      const topCards = drawPile.slice(-5).reverse().map((handCard) => ({ ...handCard }));
+      privateReveals.push({
+        title: 'Topo do monte',
+        cards: topCards,
+      });
       logs.push(`${caster.name} usou Visão para olhar o topo do monte.`);
       break;
     }
@@ -635,6 +641,7 @@ export function applyTowerPower(
     log: logs.join(' '),
     logType: 'action',
     privateMessages: privateMessages.length > 0 ? privateMessages : undefined,
+    privateReveals: privateReveals.length > 0 ? privateReveals : undefined,
   };
 }
 
@@ -753,11 +760,13 @@ export function applyClassAbility(
   const logs: string[] = [];
 
   if (classId === 'guerreiro') {
-    const opponentLayouts = laidDownPhases.filter(
-      (layout) => layout.playerId !== memberId && layout.groups.flat().length > 0,
-    );
+    const opponentLayouts = laidDownPhases.filter((layout) => {
+      if (layout.playerId === memberId || layout.groups.flat().length === 0) return false;
+      const victim = players.find((p) => p.id === layout.playerId);
+      return victim && !isProtectedFromTowerActions(victim);
+    });
     if (opponentLayouts.length === 0) {
-      throw new BadRequestException('Nenhum adversário tem cartas baixadas.');
+      throw new BadRequestException('Nenhum adversário vulnerável com cartas baixadas.');
     }
     const victimLayout = opponentLayouts[Math.floor(Math.random() * opponentLayouts.length)];
     const laidCards = victimLayout.groups.flat();
@@ -777,9 +786,11 @@ export function applyClassAbility(
       `${caster.name} (Guerreiro) destruiu ${describeCard(destroyed)} de ${victimLayout.playerName}.`,
     );
   } else if (classId === 'ladino') {
-    const targets = players.filter((p) => p.id !== memberId && p.cards.length > 0);
+    const targets = players.filter(
+      (p) => p.id !== memberId && p.cards.length > 0 && !isProtectedFromTowerActions(p),
+    );
     if (targets.length === 0) {
-      throw new BadRequestException('Nenhum adversário com cartas na mão.');
+      throw new BadRequestException('Nenhum adversário vulnerável com cartas na mão.');
     }
     const victim = targets[Math.floor(Math.random() * targets.length)];
     const stealCount = Math.min(2, victim.cards.length);

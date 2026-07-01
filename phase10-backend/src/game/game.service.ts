@@ -38,6 +38,7 @@ export interface GameActionResult {
   logType?: string;
   skipLogs?: string[];
   privateMessages?: string[];
+  privateReveals?: Array<{ title: string; cards: Card[] }>;
 }
 
 @Injectable()
@@ -197,6 +198,7 @@ export class GameService {
         log: powerResult.log,
         logType: powerResult.logType,
         privateMessages: powerResult.privateMessages,
+        privateReveals: powerResult.privateReveals,
       };
     }
 

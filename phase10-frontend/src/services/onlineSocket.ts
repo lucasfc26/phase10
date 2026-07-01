@@ -107,7 +107,7 @@ export function emitLobbyRemoveBot(
 
 export function emitGameAction(
   action: Record<string, unknown>,
-  onResult?: (result: { ok?: boolean; error?: string; room?: OnlineGameState; privateMessages?: string[] }) => void,
+  onResult?: (result: { ok?: boolean; error?: string; room?: OnlineGameState; privateMessages?: string[]; privateReveals?: Array<{ title: string; cards: import('../types').Card[] }> }) => void,
 ) {
   socket?.emit('game:action', action, onResult);
 }
