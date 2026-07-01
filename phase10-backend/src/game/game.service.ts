@@ -24,6 +24,7 @@ import {
 } from './game-engine';
 import { GameActionDto } from './dto/game-action.dto';
 import {
+  applyAbsorbPowers,
   applyClassAbility,
   applyLegendary,
   applyTowerPower,
@@ -208,6 +209,16 @@ export class GameService {
         log: classResult.log,
         logType: classResult.logType,
         privateMessages: classResult.privateMessages,
+      };
+    }
+
+    if (action.type === 'absorb_powers') {
+      const absorbResult = applyAbsorbPowers(gameRoom, memberId, action.powerCardIds ?? []);
+      return {
+        gameRoom: absorbResult.gameRoom,
+        log: absorbResult.log,
+        logType: absorbResult.logType,
+        privateMessages: absorbResult.privateMessages,
       };
     }
 

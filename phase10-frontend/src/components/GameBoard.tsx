@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, Book, Send, MessageSquare, ListTodo, 
   Check, ArrowRight, CornerRightDown,
-  Award, AlertCircle, Volume2, VolumeX, Ban, Trash2, Wand2, Layers, Hand, User
+  Award, AlertCircle, Volume2, VolumeX, Ban, Trash2, Wand2, Layers, Hand, User, BatteryCharging
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
 import { avatarDisplayText } from '../lib/characterAvatar';
@@ -39,6 +39,8 @@ import { RulesModal } from './RulesModal';
 import { PassAndPlayTransition } from './PassAndPlayTransition';
 import { ToastStack, type ToastItem, type ToastType } from './ToastStack';
 import { TowerPromptModal, type TowerPromptState } from './TowerPromptModal';
+import { TowerAbsorbModal } from './TowerAbsorbModal';
+import { absorbEnergyGain, isAbsorbablePowerCard } from '../games/towerMaster/absorb';
 import { RoomSession } from '../services/onlineApi';
 import { connectOnlineSocket, emitGameAction, getRoomDeletedMessage } from '../services/onlineSocket';
 
@@ -225,6 +227,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     subtitle?: string;
     eligibleIds: Set<string>;
   } | null>(null);
+  const [towerAbsorbOpen, setTowerAbsorbOpen] = useState(false);
   const towerPromptResolverRef = useRef<((value: unknown) => void) | null>(null);
   const towerHandPickResolverRef = useRef<((card: Card | null) => void) | null>(null);
   const towerInfoToastsRef = useRef<string[]>([]);
@@ -633,6 +636,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     turnState === 'playing' &&
     !towerPrompt &&
     !towerHandPick &&
+    !towerAbsorbOpen &&
+    room.status === 'playing';
+
+  const absorbableHandCards = myPlayer.cards.filter(isAbsorbablePowerCard);
+  const canOpenAbsorb =
+    isTowerMaster &&
+    isMyTurn &&
+    turnState === 'playing' &&
+    room.hasDrawnThisTurn &&
+    !towerPrompt &&
+    !towerHandPick &&
+    !towerAbsorbOpen &&
+    !isBuildingPhase &&
+    absorbableHandCards.length > 0 &&
     room.status === 'playing';
 
   const canUseClassAbility = canActivateClassAbility && towerClassSelected;
@@ -643,6 +660,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     !myPlayer.towerLegendaryUsedThisRound &&
     !towerPrompt &&
     !towerHandPick &&
+    !towerAbsorbOpen &&
     room.status === 'playing';
 
   const towerPowersBlocked = isOnline
@@ -1289,7 +1307,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     options?: { copyMode?: boolean; onSuccess?: () => void },
   ) => {
     if (!isTowerMaster || !isMyTurn || turnState !== 'playing' || card.type !== 'power') return;
-    if (!options?.copyMode && (towerPrompt || towerHandPick)) return;
+    if (!options?.copyMode && (towerPrompt || towerHandPick || towerAbsorbOpen)) return;
 
     if (towerPowersBlocked && card.powerId !== 'eclipse') {
       showToast('Eclipse está ativo: ninguém pode usar poderes nesta rodada.', 'warning');
@@ -1650,6 +1668,40 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       );
       setTowerClassSelected(false);
     }
+  };
+
+  const handleAbsorbConfirm = (powerCardIds: string[]) => {
+    if (!powerCardIds.length || !canOpenAbsorb) return;
+
+    const energyBefore = myPlayer.energy ?? 3;
+    const actualGain = absorbEnergyGain(energyBefore, powerCardIds.length);
+
+    playSound('click');
+    setTowerAbsorbOpen(false);
+
+    if (isOnline) {
+      sendOnlineAction({ type: 'absorb_powers', powerCardIds });
+      return;
+    }
+
+    const idSet = new Set(powerCardIds);
+    setRoom((prev) => {
+      const activeIndex = prev.currentTurnIndex;
+      const players = prev.players.map((player) => ({ ...player, cards: [...player.cards] }));
+      const caster = players[activeIndex];
+      const cardsToAbsorb = caster.cards.filter((card) => idSet.has(card.id));
+      caster.cards = caster.cards.filter((card) => !idSet.has(card.id));
+      caster.energy = Math.min(6, (caster.energy ?? 3) + cardsToAbsorb.length);
+      return {
+        ...prev,
+        players,
+        discardPile: [...prev.discardPile, ...cardsToAbsorb],
+      };
+    });
+    addLog(
+      `${myPlayer.name} absorveu ${powerCardIds.length} carta(s) de poder e ganhou +${actualGain} energia.`,
+      'success',
+    );
   };
 
   const handleUseLegendary = async () => {
@@ -3490,6 +3542,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </button>
               )}
 
+              {turnState === 'playing' && !isBuildingPhase && canOpenAbsorb && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSound('click');
+                    setTowerAbsorbOpen(true);
+                  }}
+                  className="px-3 py-1 bg-surface-muted hover:bg-surface-raised text-accent font-semibold text-[10px] rounded-md border border-accent/40 cursor-pointer flex items-center gap-1"
+                >
+                  <BatteryCharging className="w-3 h-3" />
+                  <span>Absorver</span>
+                </button>
+              )}
+
               {turnState === 'playing' && primarySelectedCard && !isBuildingPhase && (
                 <>
                   {isTowerMaster && primarySelectedCard.type === 'power' && !towerPrompt && !towerHandPick && (
@@ -3853,6 +3919,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           onSelectColor={(color) => resolveTowerPrompt(color)}
           onSelectDiscard={(discardCard) => resolveTowerPrompt(discardCard)}
           onCancel={cancelTowerPrompt}
+        />
+      )}
+
+      {towerAbsorbOpen && (
+        <TowerAbsorbModal
+          cards={absorbableHandCards}
+          currentEnergy={myPlayer.energy ?? 3}
+          onConfirm={handleAbsorbConfirm}
+          onCancel={() => setTowerAbsorbOpen(false)}
         />
       )}
 

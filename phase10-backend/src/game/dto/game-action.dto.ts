@@ -19,6 +19,7 @@ const ACTION_TYPES = [
   'use_tower_power',
   'use_class_ability',
   'use_legendary',
+  'absorb_powers',
 ] as const;
 
 export class GameActionDto {
@@ -101,4 +102,8 @@ export class GameActionDto {
   @IsOptional()
   @IsString()
   alchemistCardId?: string;
+
+  @IsOptional()
+  @IsArray()
+  powerCardIds?: string[];
 }

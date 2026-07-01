@@ -638,6 +638,67 @@ export function applyTowerPower(
   };
 }
 
+const ABSORBABLE_POWER_CATEGORIES = new Set(['attack', 'defense', 'manipulation', 'chaos']);
+
+function isAbsorbablePowerCard(card: Card): boolean {
+  return (
+    card.type === 'power' &&
+    !!card.powerCategory &&
+    ABSORBABLE_POWER_CATEGORIES.has(card.powerCategory)
+  );
+}
+
+export function applyAbsorbPowers(
+  gameRoom: GameRoom,
+  memberId: string,
+  powerCardIds: string[],
+): TowerActionResult {
+  if (!isTowerMaster(gameRoom)) {
+    throw new BadRequestException('Não é partida de Mestre da Torre.');
+  }
+
+  const uniqueIds = [...new Set(powerCardIds)];
+  if (uniqueIds.length === 0) {
+    throw new BadRequestException('Selecione ao menos uma carta para absorver.');
+  }
+
+  const activeIndex = gameRoom.currentTurnIndex;
+  const active = gameRoom.players[activeIndex];
+  if (!active || active.id !== memberId) {
+    throw new BadRequestException('Não é o seu turno.');
+  }
+  if (!gameRoom.hasDrawnThisTurn) {
+    throw new BadRequestException('Compre uma carta antes de absorver.');
+  }
+
+  const cardsToAbsorb: Card[] = [];
+  for (const cardId of uniqueIds) {
+    const card = active.cards.find((handCard) => handCard.id === cardId);
+    if (!card || !isAbsorbablePowerCard(card)) {
+      throw new BadRequestException('Carta inválida para absorção.');
+    }
+    cardsToAbsorb.push(card);
+  }
+
+  const players = clonePlayers(gameRoom.players);
+  const caster = players[activeIndex];
+  caster.cards = caster.cards.filter((handCard) => !uniqueIds.includes(handCard.id));
+  const gained = cardsToAbsorb.length;
+  const energyBefore = active.energy ?? 3;
+  const actualGain = Math.min(gained, Math.max(0, 6 - energyBefore));
+  caster.energy = Math.min(6, energyBefore + gained);
+
+  return {
+    gameRoom: {
+      ...gameRoom,
+      players,
+      discardPile: [...gameRoom.discardPile, ...cardsToAbsorb],
+    },
+    log: `${caster.name} absorveu ${gained} carta(s) de poder e ganhou +${actualGain} energia.`,
+    logType: 'success',
+  };
+}
+
 export type ClassAbilityParams = {
   alchemistCardId?: string;
 };
