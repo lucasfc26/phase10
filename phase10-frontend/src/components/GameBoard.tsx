@@ -219,10 +219,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const pendingActionRef = useRef(false);
   const lastStateVersionRef = useRef(initialRoom.stateVersion ?? 0);
   const lastTowerEnergyTurnRef = useRef<string>('');
+  const lastTurnAlertKeyRef = useRef<string | null>(null);
   const [isActionPending, setIsActionPending] = useState(false);
 
   // Sound generator
-  const playSound = (type: 'draw' | 'discard' | 'laydown' | 'skip' | 'win' | 'click') => {
+  const playSound = (type: 'draw' | 'discard' | 'laydown' | 'skip' | 'win' | 'click' | 'turn') => {
     if (!soundEnabled) return;
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -272,6 +273,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
         osc.start();
         osc.stop(ctx.currentTime + 0.8);
+      } else if (type === 'turn') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1046.5, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(1318.5, ctx.currentTime + 0.06);
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.14, ctx.currentTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
       } else { // click
         osc.frequency.setValueAtTime(500, ctx.currentTime);
         gain.gain.setValueAtTime(0.05, ctx.currentTime);
@@ -282,6 +292,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     } catch (e) {
       console.warn("Audio Context blocked or not supported", e);
     }
+  };
+
+  const alertPlayerTurn = (key: string) => {
+    if (lastTurnAlertKeyRef.current === key) return;
+    lastTurnAlertKeyRef.current = key;
+    playSound('turn');
   };
 
   // Helper for scroll references
@@ -756,6 +772,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     if (!active) return;
 
     if (active.id === onlineSession.memberId && !active.isSkipped) {
+      if (!room.hasDrawnThisTurn) {
+        alertPlayerTurn(
+          `online-${room.roundNumber}-${room.currentTurnIndex}-${room.stateVersion ?? 0}`,
+        );
+      }
       setTurnState((prev) => {
         if (room.hasDrawnThisTurn) return 'playing';
         return prev === 'playing' ? 'playing' : 'drawing';
@@ -767,7 +788,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       clearCardSelection();
       setTurnState('idle');
     }
-  }, [isOnline, onlineSession?.memberId, room.currentTurnIndex, room.status, room.players, room.hasDrawnThisTurn]);
+  }, [
+    isOnline,
+    onlineSession?.memberId,
+    room.currentTurnIndex,
+    room.roundNumber,
+    room.status,
+    room.players,
+    room.hasDrawnThisTurn,
+    room.stateVersion,
+  ]);
 
   // Is Phase builder complete/valid?
   const checkBuilderValidity = (): { isValid: boolean; error?: string } => {
@@ -2098,6 +2128,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     } else {
       if (consumedExtraTurn) {
         addLog(`${activePlayer.name} ganhou o turno extra de Tempo Congelado.`, 'success');
+        if (!activePlayer.isBot) {
+          playSound('turn');
+        }
         setTurnState('drawing');
       } else {
         setTurnState('idle');
@@ -2142,6 +2175,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     } else {
       // VS Bots mode (not online)
       if (!currentPlayer.isBot) {
+        alertPlayerTurn(
+          `local-${room.roundNumber}-${room.currentTurnIndex}-${currentPlayer.id}`,
+        );
         setTurnState(
           isTowerMaster && currentPlayer.towerCannotDraw ? 'playing' : 'drawing',
         );
@@ -2160,6 +2196,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleTransitionConfirm = () => {
     if (activePlayer?.isSkipped) return;
     setShowTransition(false);
+    alertPlayerTurn(
+      `local-transition-${room.roundNumber}-${room.currentTurnIndex}-${activePlayer.id}`,
+    );
     setTurnState(
       isTowerMaster && activePlayer?.towerCannotDraw ? 'playing' : 'drawing',
     );
