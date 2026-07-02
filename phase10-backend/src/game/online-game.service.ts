@@ -34,7 +34,7 @@ import {
 import { applyTowerTurnStart, prepareTowerRoundPlayers } from '../games/tower/engine';
 import { GameActionDto } from './dto/game-action.dto';
 import { GameService } from './game.service';
-import { generateDeck, shuffleDeck } from './game-engine';
+import { generateDeck, getRoundStarterIndex, shuffleDeck } from './game-engine';
 
 type MemberLike = {
   id: string;
@@ -463,6 +463,8 @@ export class OnlineGameService {
     const initialDiscard = shuffled.pop();
     if (initialDiscard) discardPile.push(initialDiscard);
 
+    const starterIndex = getRoundStarterIndex(gameRoom.roundNumber, updatedPlayers.length);
+
     return {
       ...gameRoom,
       status: 'playing',
@@ -470,7 +472,7 @@ export class OnlineGameService {
       drawPile: shuffled,
       discardPile,
       laidDownPhases: [],
-      currentTurnIndex: 0,
+      currentTurnIndex: starterIndex,
       hasDrawnThisTurn: false,
       currentTurnStartedAt: Date.now(),
       towerPowersDisabledRound: null,

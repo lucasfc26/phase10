@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Card, GameRoom, LaidDownPhase, Player, STANDARD_PHASES } from '../../common/game.types';
 import {
   botTryToFormPhase,
+  recycleDiscardIntoDrawPile,
   shuffleDeck,
   validatePhase,
 } from '../../game/game-engine';
@@ -32,13 +33,7 @@ function describeCard(card?: Card): string {
 }
 
 function drawFromPile(drawPile: Card[], discardPile: Card[]): Card | undefined {
-  if (drawPile.length === 0) {
-    const topDiscard = discardPile.pop();
-    const recycled = shuffleDeck([...discardPile]);
-    discardPile.length = 0;
-    if (topDiscard) discardPile.push(topDiscard);
-    drawPile.push(...recycled);
-  }
+  recycleDiscardIntoDrawPile(drawPile, discardPile);
   return drawPile.pop();
 }
 

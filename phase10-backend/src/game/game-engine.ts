@@ -61,6 +61,24 @@ export function shuffleDeck(deck: Card[]): Card[] {
   return shuffled;
 }
 
+/** Index do jogador que abre a rodada (rodada 1 = 0, rodada 2 = 1, ...). */
+export function getRoundStarterIndex(roundNumber: number, playerCount: number): number {
+  if (playerCount <= 0) return 0;
+  return (roundNumber - 1) % playerCount;
+}
+
+/** Recicla o descarte (exceto a carta do topo) no monte de compra quando este esvazia. */
+export function recycleDiscardIntoDrawPile(drawPile: Card[], discardPile: Card[]): boolean {
+  if (drawPile.length > 0 || discardPile.length <= 1) return false;
+
+  const topDiscard = discardPile.pop();
+  const newDraw = shuffleDeck([...discardPile]);
+  discardPile.length = 0;
+  if (topDiscard) discardPile.push(topDiscard);
+  drawPile.push(...newDraw);
+  return true;
+}
+
 /** Advance turn after a discard, skipping any players marked with isSkipped. */
 export function advanceToNextPlayer(
   players: Player[],

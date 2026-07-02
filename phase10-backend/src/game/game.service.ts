@@ -17,8 +17,10 @@ import {
   evaluateRoundEnd,
   generateDeck,
   generateId,
+  getRoundStarterIndex,
   identifyGroupTypes,
   isValidHit,
+  recycleDiscardIntoDrawPile,
   shuffleDeck,
   validatePhase,
 } from './game-engine';
@@ -107,6 +109,8 @@ export class GameService {
     const initialDiscard = shuffled.pop();
     if (initialDiscard) discardPile.push(initialDiscard);
 
+    const starterIndex = getRoundStarterIndex(gameRoom.roundNumber, updatedPlayers.length);
+
     return {
       ...gameRoom,
       status: 'playing',
@@ -114,7 +118,7 @@ export class GameService {
       drawPile: shuffled,
       discardPile,
       laidDownPhases: [],
-      currentTurnIndex: 0,
+      currentTurnIndex: starterIndex,
       hasDrawnThisTurn: false,
       currentTurnStartedAt: Date.now(),
     };
@@ -442,14 +446,19 @@ export class GameService {
       if (discardPile.length === 0) throw new BadRequestException('Monte de descarte vazio.');
       drawn = discardPile.pop();
     } else {
-      if (drawPile.length === 0) {
-        const topDiscard = discardPile.pop();
-        const newDraw = shuffleDeck([...discardPile]);
-        discardPile.length = 0;
-        if (topDiscard) discardPile.push(topDiscard);
-        drawPile.push(...newDraw);
-      }
+      const recycled = recycleDiscardIntoDrawPile(drawPile, discardPile);
       drawn = drawPile.pop();
+      if (!drawn) throw new BadRequestException('Não foi possível comprar carta.');
+      hand.push(drawn);
+      players[idx] = { ...players[idx], cards: hand };
+
+      const drawLog = `${players[idx].avatar} ${players[idx].name} comprou uma carta.`;
+      return {
+        gameRoom: { ...gameRoom, drawPile, discardPile, players, hasDrawnThisTurn: true },
+        log: recycled
+          ? `O monte de compras esvaziou! Reciclando descarte... ${drawLog}`
+          : drawLog,
+      };
     }
 
     if (!drawn) throw new BadRequestException('Não foi possível comprar carta.');

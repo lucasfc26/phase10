@@ -37,7 +37,8 @@ import {
   generateDeck, generateTowerMasterDeck, shuffleDeck, calculateHandScore, validatePhase, 
   identifyGroupTypes, isValidHit, botShouldDrawFromDiscard, 
   botTryToFormPhase, botChooseDiscard, botFindHits, getRandomBotPhrase, generateId,
-  evaluateRoundEnd, advanceToNextPlayer, ensureActivePlayerNotSkipped
+  evaluateRoundEnd, advanceToNextPlayer, ensureActivePlayerNotSkipped,
+  getRoundStarterIndex, recycleDiscardIntoDrawPile
 } from '../gameEngine';
 import { RulesModal } from './RulesModal';
 import { PassAndPlayTransition } from './PassAndPlayTransition';
@@ -439,6 +440,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       discardPile.push(initialDiscard);
     }
 
+    const starterIndex = getRoundStarterIndex(currentRoom.roundNumber, updatedPlayers.length);
+
     const nextRoomState: GameRoom = {
       ...currentRoom,
       status: 'playing',
@@ -446,7 +449,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       drawPile: shuffled,
       discardPile,
       laidDownPhases: [],
-      currentTurnIndex: 0 // Reset to host
+      currentTurnIndex: starterIndex,
     };
 
     setRoom(nextRoomState);
@@ -459,7 +462,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     });
 
     // Setup first turn
-    const firstPlayer = updatedPlayers[0];
+    const firstPlayer = updatedPlayers[starterIndex];
     addLog(`Vez de ${firstPlayer.name}!`, 'action');
 
     // Trigger Transition Overlay if it's a human in Pass & Play
@@ -794,13 +797,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const drawFromPile = (drawPile: Card[], discardPile: Card[]): Card | undefined => {
-    if (drawPile.length === 0) {
-      const topDiscard = discardPile.pop();
-      const recycled = shuffleDeck([...discardPile]);
-      discardPile.length = 0;
-      if (topDiscard) discardPile.push(topDiscard);
-      drawPile.push(...recycled);
-    }
+    recycleDiscardIntoDrawPile(drawPile, discardPile);
     return drawPile.pop();
   };
 
@@ -1938,14 +1935,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       let drawnCard: Card | undefined;
 
       if (source === 'draw') {
-        // If draw pile is empty, recycle discard pile!
-        if (drawPile.length === 0) {
+        const recycled = recycleDiscardIntoDrawPile(drawPile, discardPile);
+        if (recycled) {
           addLog("O monte de compras esvaziou! Reciclando descarte...", 'warning');
-          const topDiscard = discardPile.pop();
-          const newDraw = shuffleDeck([...discardPile]);
-          discardPile.length = 0;
-          if (topDiscard) discardPile.push(topDiscard);
-          drawPile.push(...newDraw);
         }
         drawnCard = drawPile.pop();
         addLog(`${avatarDisplayText(activePlayer.avatar)} ${activePlayer.name} comprou do monte.`, 'action');
@@ -2662,12 +2654,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           drawn = discardPile.pop();
           addLog(`${bot.name} comprou o descarte.`, 'action');
         } else {
-          if (drawPile.length === 0) {
-            const topDisc = discardPile.pop();
-            const newDraw = shuffleDeck([...discardPile]);
-            discardPile.length = 0;
-            if (topDisc) discardPile.push(topDisc);
-            drawPile.push(...newDraw);
+          const recycled = recycleDiscardIntoDrawPile(drawPile, discardPile);
+          if (recycled) {
+            addLog("O monte de compras esvaziou! Reciclando descarte...", 'warning');
           }
           drawn = drawPile.pop();
           addLog(`${bot.name} comprou do monte.`, 'action');
