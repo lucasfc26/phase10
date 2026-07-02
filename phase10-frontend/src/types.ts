@@ -127,6 +127,8 @@ export interface GameRoom {
   settings: {
     gameMode: 'bots' | 'pass_and_play' | 'online'; // Added 'online'
     botDelay: number; // milliseconds
+    drawTimeoutMs: number; // 0 = sem limite
+    discardTimeoutMs: number; // 0 = sem limite
     customPhases: boolean;
     allowBots: boolean; // Option to allow bots or not
     roomPassword?: string;

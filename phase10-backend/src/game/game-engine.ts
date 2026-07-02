@@ -783,3 +783,20 @@ export function evaluateRoundEnd(
   }
   return null;
 }
+
+/** Escolhe aleatoriamente comprar da pilha ou do descarte (se houver descarte). */
+export function pickRandomAutoDrawSource(discardPileLength: number): 'draw' | 'discard' {
+  if (discardPileLength <= 0) return 'draw';
+  return Math.random() < 0.5 ? 'draw' : 'discard';
+}
+
+export function pickRandomCardFromHand(cards: Card[]): Card | undefined {
+  if (cards.length === 0) return undefined;
+  return cards[Math.floor(Math.random() * cards.length)];
+}
+
+export function pickRandomSkipTarget(players: Player[], actorId: string): string | null {
+  const opponents = players.filter((p) => p.id !== actorId && !p.isSkipped);
+  if (opponents.length === 0) return null;
+  return opponents[Math.floor(Math.random() * opponents.length)].id;
+}

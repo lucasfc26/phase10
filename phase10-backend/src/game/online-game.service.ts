@@ -339,6 +339,28 @@ export class OnlineGameService {
     };
   }
 
+  applyTurnTimeout(state: AnyGameState): {
+    state: AnyGameState;
+    log: string;
+    logType: string;
+    skipLogs?: string[];
+    privateMessages?: string[];
+  } | null {
+    const cardGame = getCardGameFromState(state);
+    if (cardGame === 'truco' || cardGame === 'poker') {
+      return null;
+    }
+    const result = this.gameService.applyTurnTimeout(state as GameRoom);
+    if (!result) return null;
+    return {
+      state: result.gameRoom,
+      log: result.log ?? '',
+      logType: result.logType ?? 'warning',
+      skipLogs: result.skipLogs,
+      privateMessages: result.privateMessages,
+    };
+  }
+
   isBotTurn(state: AnyGameState): boolean {
     const cardGame = getCardGameFromState(state);
     if (cardGame === 'truco') {

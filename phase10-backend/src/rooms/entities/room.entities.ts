@@ -35,6 +35,8 @@ export class Room {
   settings!: {
     gameMode: 'online';
     botDelay: number;
+    drawTimeoutMs: number;
+    discardTimeoutMs: number;
     customPhases: boolean;
     allowBots: boolean;
     cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';

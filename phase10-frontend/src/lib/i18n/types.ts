@@ -60,6 +60,13 @@ export type Translations = {
     sound: string;
     soundOn: string;
     soundOff: string;
+    music: string;
+    musicTrack: string;
+    musicNone: string;
+    musicCombined: string;
+    musicVolume: string;
+    musicPlay: string;
+    musicPause: string;
     darkMode: string;
     darkOn: string;
     darkOff: string;

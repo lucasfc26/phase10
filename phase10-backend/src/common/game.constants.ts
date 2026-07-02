@@ -1,3 +1,5 @@
 export const DEFAULT_BOT_DELAY_MS = 600;
+export const DEFAULT_DRAW_TIMEOUT_MS = 30_000;
+export const DEFAULT_DISCARD_TIMEOUT_MS = 30_000;
 
 export const PUBLIC_ROOMS_CACHE_MS = 4000;

@@ -625,7 +625,44 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-        if (!this.onlineGameService.isBotTurn(gameRoom)) break;
+        const isBotTurn = this.onlineGameService.isBotTurn(gameRoom);
+        if (!isBotTurn) {
+          const timeoutResult = this.onlineGameService.applyTurnTimeout(gameRoom);
+          if (timeoutResult) {
+            gameRoom = await this.roomsService.saveGameRoom(roomId, timeoutResult.state);
+            for (const skipLog of timeoutResult.skipLogs || []) {
+              this.server.to(roomId).emit('game:log', {
+                id: `${Date.now()}-skip-${Math.random().toString(36).slice(2, 7)}`,
+                message: skipLog,
+                type: 'warning',
+                timestamp: new Date().toLocaleTimeString(),
+              });
+            }
+            if (timeoutResult.log) {
+              this.server.to(roomId).emit('game:log', {
+                id: Date.now().toString(),
+                message: timeoutResult.log,
+                type: timeoutResult.logType || 'warning',
+                timestamp: new Date().toLocaleTimeString(),
+              });
+            }
+            await this.broadcastGameState(roomId, gameRoom);
+            continue;
+          }
+
+          const drawTimeout = gameRoom.settings.drawTimeoutMs ?? 0;
+          const discardTimeout = gameRoom.settings.discardTimeoutMs ?? 0;
+          const waitMs = Math.max(
+            200,
+            Math.min(
+              drawTimeout > 0 ? drawTimeout : Number.MAX_SAFE_INTEGER,
+              discardTimeout > 0 ? discardTimeout : Number.MAX_SAFE_INTEGER,
+              1000,
+            ),
+          );
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          continue;
+        }
 
 
 
@@ -690,7 +727,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
 
 
-        if (!this.onlineGameService.isBotTurn(gameRoom)) break;
+        if (!this.onlineGameService.isBotTurn(gameRoom)) continue;
 
 
 

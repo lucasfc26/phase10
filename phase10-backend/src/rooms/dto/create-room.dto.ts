@@ -27,6 +27,24 @@ export class CreateRoomDto {
   allowBots?: boolean;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(600_000)
+  botDelay?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(600_000)
+  drawTimeoutMs?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(600_000)
+  discardTimeoutMs?: number;
+
+  @IsOptional()
   @IsIn(['phase10', 'truco', 'poker', 'tower_master'])
   cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
 }

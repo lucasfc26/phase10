@@ -1,6 +1,7 @@
-import { X, Volume2, VolumeX, Moon, Sun, Globe, Layers } from 'lucide-react';
+import { X, Volume2, VolumeX, Moon, Sun, Globe, Layers, Music2 } from 'lucide-react';
 import { useI18n, type Locale } from '../lib/i18n';
 import { LOCALE_LABELS } from '../lib/settings';
+import type { MusicTrack } from '../lib/settings';
 import type { Theme } from '../lib/theme';
 import type { CardFaceStyle } from '../lib/cardFace';
 
@@ -13,6 +14,13 @@ type SettingsModalProps = {
   onLocaleChange: (locale: Locale) => void;
   soundEnabled: boolean;
   onSoundChange: (enabled: boolean) => void;
+  musicTrack: MusicTrack;
+  onMusicTrackChange: (track: MusicTrack) => void;
+  musicVolume: number;
+  onMusicVolumeChange: (volume: number) => void;
+  musicPlaying: boolean;
+  onMusicPlayingChange: (playing: boolean) => void;
+  musicEnabled: boolean;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   cardFaceStyle: CardFaceStyle;
@@ -26,6 +34,13 @@ export function SettingsModal({
   onLocaleChange,
   soundEnabled,
   onSoundChange,
+  musicTrack,
+  onMusicTrackChange,
+  musicVolume,
+  onMusicVolumeChange,
+  musicPlaying,
+  onMusicPlayingChange,
+  musicEnabled,
   theme,
   onThemeChange,
   cardFaceStyle,
@@ -93,6 +108,65 @@ export function SettingsModal({
             >
               {soundEnabled ? t.settings.soundOn : t.settings.soundOff}
             </button>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-secondary">
+              <Music2 className="w-4 h-4 text-accent" />
+              {t.settings.music}
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
+                {t.settings.musicTrack}
+              </span>
+              <select
+                value={musicTrack}
+                onChange={(e) => onMusicTrackChange(e.target.value as MusicTrack)}
+                className="bg-surface border border-default rounded-lg px-3 py-1.5 text-xs font-bold text-secondary"
+              >
+                <option value="none">{t.settings.musicNone}</option>
+                <option value="combined">{t.settings.musicCombined}</option>
+                <option value="chefe-final">Chefe Final</option>
+                <option value="veludo-no-cafe">Veludo No Cafe</option>
+              </select>
+            </div>
+            {musicEnabled && (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted">
+                  {musicPlaying ? t.settings.musicPause : t.settings.musicPlay}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onMusicPlayingChange(!musicPlaying)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    musicPlaying
+                      ? 'bg-accent-soft border-accent text-accent'
+                      : 'bg-surface-muted border-default text-muted'
+                  }`}
+                >
+                  {musicPlaying ? t.settings.musicPause : t.settings.musicPlay}
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
+                {t.settings.musicVolume}
+              </span>
+              <div className="flex items-center gap-3 min-w-[180px]">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={Math.round(musicVolume * 100)}
+                  onChange={(e) => onMusicVolumeChange(Number(e.target.value) / 100)}
+                  className="w-full accent-(--accent)"
+                />
+                <span className="w-10 text-right text-xs font-semibold text-secondary">
+                  {Math.round(musicVolume * 100)}%
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center justify-between gap-4">

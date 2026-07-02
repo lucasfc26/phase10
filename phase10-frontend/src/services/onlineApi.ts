@@ -70,6 +70,9 @@ export const onlineApi = {
     maxPlayers: number;
     password?: string;
     allowBots?: boolean;
+    botDelay?: number;
+    drawTimeoutMs?: number;
+    discardTimeoutMs?: number;
     cardGame?: 'phase10' | 'truco' | 'poker' | 'tower_master';
   }) =>
     request<{ session: RoomSession; lobby: LobbyState }>('/rooms', {

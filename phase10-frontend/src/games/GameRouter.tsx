@@ -18,6 +18,7 @@ interface GameRouterProps {
   playerProfile: GamePlayerProfile;
   onExit: () => void;
   initialSoundEnabled?: boolean;
+  onPhasesOnTableChange?: (hasPhases: boolean) => void;
 }
 
 export function GameRouter({
@@ -25,6 +26,7 @@ export function GameRouter({
   playerProfile,
   onExit,
   initialSoundEnabled,
+  onPhasesOnTableChange,
 }: GameRouterProps) {
   if (game.cardGame === 'truco') {
     return (
@@ -57,6 +59,7 @@ export function GameRouter({
       onlineSession={game.session ?? null}
       onExit={onExit}
       initialSoundEnabled={initialSoundEnabled}
+      onPhasesOnTableChange={onPhasesOnTableChange}
     />
   );
 }

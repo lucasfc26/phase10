@@ -8,7 +8,11 @@ import * as bcrypt from 'bcrypt';
 import { DataSource, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { AnyGameState, CardGameId, isPhaseStyleRoom } from '../common/card-game.types';
-import { DEFAULT_BOT_DELAY_MS } from '../common/game.constants';
+import {
+  DEFAULT_BOT_DELAY_MS,
+  DEFAULT_DISCARD_TIMEOUT_MS,
+  DEFAULT_DRAW_TIMEOUT_MS,
+} from '../common/game.constants';
 import { GameService } from '../game/game.service';
 import { OnlineGameService } from '../game/online-game.service';
 import { GameRoom } from '../common/game.types';
@@ -131,7 +135,9 @@ export class RoomsService {
       status: 'lobby',
       settings: {
         gameMode: 'online',
-        botDelay: DEFAULT_BOT_DELAY_MS,
+        botDelay: dto.botDelay ?? DEFAULT_BOT_DELAY_MS,
+        drawTimeoutMs: dto.drawTimeoutMs ?? DEFAULT_DRAW_TIMEOUT_MS,
+        discardTimeoutMs: dto.discardTimeoutMs ?? DEFAULT_DISCARD_TIMEOUT_MS,
         customPhases: false,
         allowBots: dto.allowBots ?? true,
         cardGame,

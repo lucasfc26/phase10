@@ -38,7 +38,7 @@ import {
   identifyGroupTypes, isValidHit, botShouldDrawFromDiscard, 
   botTryToFormPhase, botChooseDiscard, botFindHits, getRandomBotPhrase, generateId,
   evaluateRoundEnd, advanceToNextPlayer, ensureActivePlayerNotSkipped,
-  getRoundStarterIndex, recycleDiscardIntoDrawPile
+  getRoundStarterIndex, pickRandomAutoDrawSource, pickRandomCardFromHand, pickRandomSkipTarget, recycleDiscardIntoDrawPile
 } from '../gameEngine';
 import { RulesModal } from './RulesModal';
 import { PassAndPlayTransition } from './PassAndPlayTransition';
@@ -56,6 +56,7 @@ interface GameBoardProps {
   onlineSession?: RoomSession | null;
   onExit: () => void;
   initialSoundEnabled?: boolean;
+  onPhasesOnTableChange?: (hasPhases: boolean) => void;
 }
 
 function TowerInspectedCardPreview({ card }: { card: Card }) {
@@ -99,6 +100,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   onlineSession,
   onExit,
   initialSoundEnabled = true,
+  onPhasesOnTableChange,
 }) => {
   const [room, setRoom] = useState<GameRoom>(initialRoom);
   const isOnline = !!onlineSession;
@@ -300,6 +302,24 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     playSound('turn');
   };
 
+  const getAutoDiscardChoice = (player: Player): { card: Card; skipPlayerId: string | null } | null => {
+    const randomCard = pickRandomCardFromHand(player.cards);
+    if (!randomCard) return null;
+    if (randomCard.type !== 'skip') {
+      return { card: randomCard, skipPlayerId: null };
+    }
+
+    const randomTarget = pickRandomSkipTarget(room.players, player.id);
+    if (randomTarget) {
+      return { card: randomCard, skipPlayerId: randomTarget };
+    }
+
+    const nonSkipCards = player.cards.filter((card) => card.type !== 'skip');
+    const fallbackCard = pickRandomCardFromHand(nonSkipCards);
+    if (!fallbackCard) return null;
+    return { card: fallbackCard, skipPlayerId: null };
+  };
+
   // Helper for scroll references
   const logEndRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -311,6 +331,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
+
+  useEffect(() => {
+    onPhasesOnTableChange?.(room.laidDownPhases.length > 0);
+    return () => {
+      onPhasesOnTableChange?.(false);
+    };
+  }, [room.laidDownPhases, onPhasesOnTableChange]);
 
   // Log a new system message
   const addLog = (message: string, type: GameLog['type'] = 'info') => {
@@ -797,6 +824,49 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     room.players,
     room.hasDrawnThisTurn,
     room.stateVersion,
+  ]);
+
+  useEffect(() => {
+    if (isOnline || room.status !== 'playing' || showTransition || !activePlayer || activePlayer.isBot) {
+      return;
+    }
+
+    const timeoutMs =
+      turnState === 'drawing'
+        ? room.settings.drawTimeoutMs
+        : turnState === 'playing'
+          ? room.settings.discardTimeoutMs
+          : 0;
+
+    if (!timeoutMs || timeoutMs <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      if (turnState === 'drawing') {
+        const source = pickRandomAutoDrawSource(room.discardPile.length);
+        handleDrawCard(source);
+        return;
+      }
+
+      if (turnState === 'playing') {
+        const choice = getAutoDiscardChoice(activePlayer);
+        if (choice) {
+          executeDiscard(choice.card, choice.skipPlayerId);
+        }
+      }
+    }, timeoutMs);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activePlayer,
+    isOnline,
+    room.currentTurnIndex,
+    room.discardPile.length,
+    room.roundNumber,
+    room.settings.discardTimeoutMs,
+    room.settings.drawTimeoutMs,
+    room.status,
+    showTransition,
+    turnState,
   ]);
 
   // Is Phase builder complete/valid?

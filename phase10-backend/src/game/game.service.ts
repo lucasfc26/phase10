@@ -20,11 +20,18 @@ import {
   getRoundStarterIndex,
   identifyGroupTypes,
   isValidHit,
+  pickRandomAutoDrawSource,
+  pickRandomCardFromHand,
+  pickRandomSkipTarget,
   recycleDiscardIntoDrawPile,
   shuffleDeck,
   validatePhase,
 } from './game-engine';
 import { GameActionDto } from './dto/game-action.dto';
+import {
+  DEFAULT_DISCARD_TIMEOUT_MS,
+  DEFAULT_DRAW_TIMEOUT_MS,
+} from '../common/game.constants';
 import {
   applyAbsorbPowers,
   applyClassAbility,
@@ -375,6 +382,74 @@ export class GameService {
     return { gameRoom: state, logs };
   }
 
+  /** Compra ou descarta automaticamente quando o tempo do turno expira. */
+  applyTurnTimeout(gameRoom: GameRoom): GameActionResult | null {
+    if (gameRoom.status !== 'playing') return null;
+
+    const drawTimeout = gameRoom.settings.drawTimeoutMs ?? DEFAULT_DRAW_TIMEOUT_MS;
+    const discardTimeout = gameRoom.settings.discardTimeoutMs ?? DEFAULT_DISCARD_TIMEOUT_MS;
+
+    const resolved = ensureActivePlayerNotSkipped(gameRoom.players, gameRoom.currentTurnIndex);
+    let state: GameRoom = {
+      ...gameRoom,
+      players: resolved.players,
+      currentTurnIndex: resolved.currentTurnIndex,
+    };
+
+    const player = state.players[state.currentTurnIndex];
+    if (!player) return null;
+
+    const frozen = isTowerMaster(state) && !!player.towerCannotDraw;
+    const inDrawPhase = !state.hasDrawnThisTurn && !frozen;
+    const timeoutMs = inDrawPhase ? drawTimeout : discardTimeout;
+    if (timeoutMs <= 0) return null;
+
+    const turnStarted = state.currentTurnStartedAt ?? Date.now();
+    if (Date.now() - turnStarted < timeoutMs) return null;
+
+    if (inDrawPhase) {
+      let source = pickRandomAutoDrawSource(state.discardPile.length);
+      try {
+        const drawResult = this.processDraw(state, source);
+        return {
+          gameRoom: drawResult.gameRoom,
+          log: `⏱️ Tempo esgotado — ${player.name} comprou automaticamente.`,
+          logType: 'warning',
+        };
+      } catch {
+        source = source === 'discard' ? 'draw' : 'discard';
+        try {
+          const drawResult = this.processDraw(state, source);
+          return {
+            gameRoom: drawResult.gameRoom,
+            log: `⏱️ Tempo esgotado — ${player.name} comprou automaticamente.`,
+            logType: 'warning',
+          };
+        } catch {
+          return null;
+        }
+      }
+    }
+
+    const card = pickRandomCardFromHand(player.cards);
+    if (!card) return null;
+
+    let skipPlayerId: string | null = null;
+    if (card.type === 'skip') {
+      skipPlayerId = pickRandomSkipTarget(state.players, player.id);
+      if (!skipPlayerId) return null;
+    }
+
+    const discardResult = this.processDiscard(state, card.id, skipPlayerId);
+    return {
+      gameRoom: discardResult.gameRoom,
+      log: `⏱️ Tempo esgotado — ${player.name} descartou automaticamente.`,
+      logType: 'warning',
+      skipLogs: discardResult.skipLogs,
+      privateMessages: discardResult.privateMessages,
+    };
+  }
+
   /** Pula o turno de um bot que ficou travado por mais de 1 minuto. */
   skipStuckBotTurn(gameRoom: GameRoom): {
     gameRoom: GameRoom;
@@ -454,7 +529,7 @@ export class GameService {
 
       const drawLog = `${players[idx].avatar} ${players[idx].name} comprou uma carta.`;
       return {
-        gameRoom: { ...gameRoom, drawPile, discardPile, players, hasDrawnThisTurn: true },
+        gameRoom: { ...gameRoom, drawPile, discardPile, players, hasDrawnThisTurn: true, currentTurnStartedAt: Date.now() },
         log: recycled
           ? `O monte de compras esvaziou! Reciclando descarte... ${drawLog}`
           : drawLog,
@@ -466,7 +541,7 @@ export class GameService {
     players[idx] = { ...players[idx], cards: hand };
 
     return {
-      gameRoom: { ...gameRoom, drawPile, discardPile, players, hasDrawnThisTurn: true },
+      gameRoom: { ...gameRoom, drawPile, discardPile, players, hasDrawnThisTurn: true, currentTurnStartedAt: Date.now() },
       log: `${players[idx].avatar} ${players[idx].name} comprou uma carta.`,
     };
   }

@@ -166,6 +166,8 @@ export const Lobby: React.FC<LobbyProps> = ({
   const [inputRoomCode, setInputRoomCode] = useState<string>("");
   const [maxPlayers, setMaxPlayers] = useState<number>(4);
   const [botSpeed, setBotSpeed] = useState<number>(600); // ms delay
+  const [drawTimeoutMs, setDrawTimeoutMs] = useState<number>(30000);
+  const [discardTimeoutMs, setDiscardTimeoutMs] = useState<number>(30000);
   const [allowBotsToggle, setAllowBotsToggle] = useState<boolean>(true);
   const [roomPassword, setRoomPassword] = useState<string>("");
   const [joinPassword, setJoinPassword] = useState<string>("");
@@ -319,6 +321,9 @@ export const Lobby: React.FC<LobbyProps> = ({
               maxPlayers,
               password: roomPassword.trim() || undefined,
               allowBots: allowBotsToggle,
+              botDelay: botSpeed,
+              drawTimeoutMs,
+              discardTimeoutMs,
               cardGame,
             })
           : await onlineApi.joinRoom({
@@ -599,6 +604,8 @@ export const Lobby: React.FC<LobbyProps> = ({
       settings: {
         gameMode,
         botDelay: botSpeed,
+        drawTimeoutMs,
+        discardTimeoutMs,
         customPhases: false,
         allowBots: allowBotsToggle,
         cardGame,
@@ -1100,6 +1107,56 @@ export const Lobby: React.FC<LobbyProps> = ({
                 </select>
               </div>
             )}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="bg-surface-muted border border-default p-4 rounded-xl flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-secondary block">
+                    Tempo para comprar
+                  </span>
+                  <span className="text-[10px] text-muted">
+                    Ao acabar, compra automaticamente
+                  </span>
+                </div>
+                <select
+                  value={drawTimeoutMs}
+                  onChange={(e) => setDrawTimeoutMs(parseInt(e.target.value))}
+                  className="bg-surface border border-default rounded-lg px-3 py-1.5 text-xs font-bold text-secondary"
+                >
+                  <option value={0}>Desligado</option>
+                  <option value={5000}>5s</option>
+                  <option value={10000}>10s</option>
+                  <option value={15000}>15s</option>
+                  <option value={30000}>30s</option>
+                  <option value={45000}>45s</option>
+                  <option value={60000}>60s</option>
+                </select>
+              </div>
+
+              <div className="bg-surface-muted border border-default p-4 rounded-xl flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-secondary block">
+                    Tempo para descartar
+                  </span>
+                  <span className="text-[10px] text-muted">
+                    Ao acabar, descarta automaticamente
+                  </span>
+                </div>
+                <select
+                  value={discardTimeoutMs}
+                  onChange={(e) => setDiscardTimeoutMs(parseInt(e.target.value))}
+                  className="bg-surface border border-default rounded-lg px-3 py-1.5 text-xs font-bold text-secondary"
+                >
+                  <option value={0}>Desligado</option>
+                  <option value={5000}>5s</option>
+                  <option value={10000}>10s</option>
+                  <option value={15000}>15s</option>
+                  <option value={30000}>30s</option>
+                  <option value={45000}>45s</option>
+                  <option value={60000}>60s</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <button
