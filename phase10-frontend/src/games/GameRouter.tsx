@@ -17,7 +17,8 @@ interface GameRouterProps {
   game: ActiveGameState;
   playerProfile: GamePlayerProfile;
   onExit: () => void;
-  initialSoundEnabled?: boolean;
+  masterVolume?: number;
+  onMasterVolumeChange?: (volume: number) => void;
   onPhasesOnTableChange?: (hasPhases: boolean) => void;
 }
 
@@ -25,7 +26,8 @@ export function GameRouter({
   game,
   playerProfile,
   onExit,
-  initialSoundEnabled,
+  masterVolume,
+  onMasterVolumeChange,
   onPhasesOnTableChange,
 }: GameRouterProps) {
   if (game.cardGame === 'truco') {
@@ -35,7 +37,8 @@ export function GameRouter({
         playerProfile={playerProfile}
         onlineSession={game.session ?? null}
         onExit={onExit}
-        initialSoundEnabled={initialSoundEnabled}
+        masterVolume={masterVolume}
+        onMasterVolumeChange={onMasterVolumeChange}
       />
     );
   }
@@ -47,7 +50,8 @@ export function GameRouter({
         playerProfile={playerProfile}
         onlineSession={game.session ?? null}
         onExit={onExit}
-        initialSoundEnabled={initialSoundEnabled}
+        masterVolume={masterVolume}
+        onMasterVolumeChange={onMasterVolumeChange}
       />
     );
   }
@@ -58,7 +62,8 @@ export function GameRouter({
       playerProfile={playerProfile}
       onlineSession={game.session ?? null}
       onExit={onExit}
-      initialSoundEnabled={initialSoundEnabled}
+      masterVolume={masterVolume}
+      onMasterVolumeChange={onMasterVolumeChange}
       onPhasesOnTableChange={onPhasesOnTableChange}
     />
   );

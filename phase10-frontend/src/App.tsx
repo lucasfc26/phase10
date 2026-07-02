@@ -14,15 +14,15 @@ import { applyCardFaceStyle, getStoredCardFaceStyle, type CardFaceStyle } from '
 import { I18nProvider, type Locale } from './lib/i18n';
 import {
   getStoredLocale,
+  getStoredMasterVolume,
   getStoredMusicTrack,
   getStoredMusicVolume,
   getStoredMusicPlaying,
-  getStoredSoundEnabled,
+  setStoredMasterVolume,
   setStoredMusicTrack,
   setStoredMusicVolume,
   setStoredMusicPlaying,
   setStoredLocale,
-  setStoredSoundEnabled,
   type MusicTrack,
 } from './lib/settings';
 import {
@@ -48,7 +48,7 @@ function App({ initialTheme }: AppProps) {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [cardFaceStyle, setCardFaceStyle] = useState<CardFaceStyle>(() => getStoredCardFaceStyle() ?? 'mono');
   const [locale, setLocale] = useState<Locale>(() => getStoredLocale());
-  const [soundEnabled, setSoundEnabled] = useState(() => getStoredSoundEnabled());
+  const [masterVolume, setMasterVolume] = useState(() => getStoredMasterVolume());
   const [musicTrack, setMusicTrack] = useState<MusicTrack>(() => getStoredMusicTrack());
   const [musicVolume, setMusicVolume] = useState(() => getStoredMusicVolume());
   const [musicPlaying, setMusicPlaying] = useState(() => getStoredMusicPlaying());
@@ -92,9 +92,9 @@ function App({ initialTheme }: AppProps) {
     setLocale(next);
   };
 
-  const handleSoundChange = (enabled: boolean) => {
-    setStoredSoundEnabled(enabled);
-    setSoundEnabled(enabled);
+  const handleMasterVolumeChange = (volume: number) => {
+    setStoredMasterVolume(volume);
+    setMasterVolume(volume);
   };
 
   const handleMusicTrackChange = (track: MusicTrack) => {
@@ -119,7 +119,7 @@ function App({ initialTheme }: AppProps) {
     const audio = musicRef.current;
     if (!audio) return;
 
-    audio.volume = musicVolume;
+    audio.volume = musicVolume * masterVolume;
     audio.loop = true;
 
     const effective = resolveEffectiveMusicTrack(musicTrack, hasPhasesOnTable);
@@ -137,28 +137,28 @@ function App({ initialTheme }: AppProps) {
       audio.load();
     }
 
-    if (musicPlaying) {
+    if (musicPlaying && masterVolume > 0) {
       void audio.play().catch(() => {
         // Browser may block autoplay until the first user interaction.
       });
     } else {
       audio.pause();
     }
-  }, [musicTrack, musicVolume, hasPhasesOnTable, musicPlaying]);
+  }, [musicTrack, musicVolume, hasPhasesOnTable, musicPlaying, masterVolume]);
 
   useEffect(() => {
     const audio = musicRef.current;
     if (!audio) return;
 
     const handleEnded = () => {
-      if (!musicPlaying || musicTrack === 'none') return;
+      if (!musicPlaying || musicTrack === 'none' || masterVolume <= 0) return;
       audio.currentTime = 0;
       void audio.play().catch(() => {});
     };
 
     audio.addEventListener('ended', handleEnded);
     return () => audio.removeEventListener('ended', handleEnded);
-  }, [musicPlaying, musicTrack]);
+  }, [musicPlaying, musicTrack, masterVolume]);
 
   const handleStartGame = (
     game: ActiveGameState,
@@ -189,7 +189,8 @@ function App({ initialTheme }: AppProps) {
               game={activeGame}
               playerProfile={playerProfile}
               onExit={handleExitGame}
-              initialSoundEnabled={soundEnabled}
+              masterVolume={masterVolume}
+              onMasterVolumeChange={handleMasterVolumeChange}
               onPhasesOnTableChange={setHasPhasesOnTable}
             />
           </main>
@@ -235,8 +236,8 @@ function App({ initialTheme }: AppProps) {
           onClose={() => setIsSettingsOpen(false)}
           locale={locale}
           onLocaleChange={handleLocaleChange}
-          soundEnabled={soundEnabled}
-          onSoundChange={handleSoundChange}
+          masterVolume={masterVolume}
+          onMasterVolumeChange={handleMasterVolumeChange}
           musicTrack={musicTrack}
           onMusicTrackChange={handleMusicTrackChange}
           musicVolume={musicVolume}

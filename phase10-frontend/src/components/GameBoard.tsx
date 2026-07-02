@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, Book, Send, MessageSquare, ListTodo, 
   Check, ArrowRight, CornerRightDown,
-  Award, AlertCircle, Volume2, VolumeX, Ban, Trash2, Wand2, Layers, Hand, User, BatteryCharging
+  Award, AlertCircle, Ban, Trash2, Wand2, Layers, Hand, User, BatteryCharging
 } from 'lucide-react';
 import { PlayerAvatar } from './PlayerAvatar';
 import { avatarDisplayText } from '../lib/characterAvatar';
@@ -47,6 +47,8 @@ import { TowerPromptModal, type TowerPromptState } from './TowerPromptModal';
 import { TowerAbsorbModal } from './TowerAbsorbModal';
 import { TowerRevealModal, type TowerRevealState } from './TowerRevealModal';
 import { absorbEnergyGain, isAbsorbablePowerCard } from '../games/towerMaster/absorb';
+import { getActiveTurnTimeout, getSecondsRemaining } from '../lib/turnTimeout';
+import { VolumeControl } from './VolumeControl';
 import { RoomSession } from '../services/onlineApi';
 import { connectOnlineSocket, emitGameAction, getRoomDeletedMessage } from '../services/onlineSocket';
 
@@ -55,7 +57,8 @@ interface GameBoardProps {
   playerProfile: { name: string; avatar: string; color: string };
   onlineSession?: RoomSession | null;
   onExit: () => void;
-  initialSoundEnabled?: boolean;
+  masterVolume?: number;
+  onMasterVolumeChange?: (volume: number) => void;
   onPhasesOnTableChange?: (hasPhases: boolean) => void;
 }
 
@@ -99,7 +102,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   playerProfile,
   onlineSession,
   onExit,
-  initialSoundEnabled = true,
+  masterVolume = 1,
+  onMasterVolumeChange,
   onPhasesOnTableChange,
 }) => {
   const [room, setRoom] = useState<GameRoom>(initialRoom);
@@ -118,8 +122,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [isRulesOpen, setIsRulesOpen] = useState<boolean>(false);
   
   // Audio state
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(initialSoundEnabled);
-
   // Turn Flow States
   // 'idle' = not their turn, 'drawing' = must draw, 'playing' = can lay down/hit/must discard
   const [turnState, setTurnState] = useState<'drawing' | 'playing' | 'idle'>('idle');
@@ -222,17 +224,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const lastStateVersionRef = useRef(initialRoom.stateVersion ?? 0);
   const lastTowerEnergyTurnRef = useRef<string>('');
   const lastTurnAlertKeyRef = useRef<string | null>(null);
+  const offlinePhaseStartedAtRef = useRef(Date.now());
+  const handBeforeDrawRef = useRef<string[]>([]);
+  const [lastDrawnCardId, setLastDrawnCardId] = useState<string | null>(null);
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null);
+  const [turnTimeoutPhase, setTurnTimeoutPhase] = useState<'draw' | 'discard' | null>(null);
   const [isActionPending, setIsActionPending] = useState(false);
 
   // Sound generator
   const playSound = (type: 'draw' | 'discard' | 'laydown' | 'skip' | 'win' | 'click' | 'turn') => {
-    if (!soundEnabled) return;
+    if (masterVolume <= 0) return;
+    const vol = masterVolume;
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
+      const outputGain = ctx.createGain();
+      outputGain.gain.setValueAtTime(vol, ctx.currentTime);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(outputGain);
+      outputGain.connect(ctx.destination);
 
       if (type === 'draw') {
         osc.frequency.setValueAtTime(400, ctx.currentTime);
@@ -638,6 +649,40 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     ? room.players[room.currentTurnIndex]?.id === onlineSession?.memberId && !showTransition
     : activePlayer && !activePlayer.isBot && !showTransition;
 
+  useEffect(() => {
+    if (!isMyTurn) {
+      setLastDrawnCardId(null);
+      return;
+    }
+    if (turnState === 'drawing' || (isOnline && !room.hasDrawnThisTurn)) {
+      handBeforeDrawRef.current = myPlayer.cards
+        .filter((c) => !c.id.startsWith('hidden-'))
+        .map((c) => c.id);
+    }
+  }, [isMyTurn, isOnline, myPlayer.cards, room.currentTurnIndex, room.hasDrawnThisTurn, room.roundNumber, turnState]);
+
+  useEffect(() => {
+    if (!isMyTurn) return;
+
+    const hasDrawn = isOnline ? !!room.hasDrawnThisTurn : turnState === 'playing';
+    if (!hasDrawn) return;
+
+    const myCardIds = myPlayer.cards
+      .filter((c) => !c.id.startsWith('hidden-'))
+      .map((c) => c.id);
+    const before = new Set(handBeforeDrawRef.current);
+    const newCardId = myCardIds.find((id) => !before.has(id));
+    if (newCardId) {
+      setLastDrawnCardId(newCardId);
+    }
+  }, [isMyTurn, isOnline, myPlayer.cards, room.hasDrawnThisTurn, turnState]);
+
+  useEffect(() => {
+    if (lastDrawnCardId && !myPlayer.cards.some((c) => c.id === lastDrawnCardId)) {
+      setLastDrawnCardId(null);
+    }
+  }, [lastDrawnCardId, myPlayer.cards]);
+
   const inspectedCard =
     isTowerMaster && towerInspectedCardId
       ? myPlayer.cards.find((c) => c.id === towerInspectedCardId) ?? null
@@ -827,44 +872,85 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   ]);
 
   useEffect(() => {
-    if (isOnline || room.status !== 'playing' || showTransition || !activePlayer || activePlayer.isBot) {
+    if (isOnline) return;
+    offlinePhaseStartedAtRef.current = Date.now();
+  }, [isOnline, room.currentTurnIndex, room.roundNumber, turnState, showTransition]);
+
+  useEffect(() => {
+    const timeout = getActiveTurnTimeout(room, activePlayer, {
+      isOnline,
+      isTowerMaster,
+      turnState,
+      showTransition,
+      offlinePhaseStartedAt: offlinePhaseStartedAtRef.current,
+    });
+
+    if (!timeout) {
+      setTurnSecondsLeft(null);
+      setTurnTimeoutPhase(null);
       return;
     }
 
-    const timeoutMs =
-      turnState === 'drawing'
-        ? room.settings.drawTimeoutMs
-        : turnState === 'playing'
-          ? room.settings.discardTimeoutMs
-          : 0;
+    setTurnTimeoutPhase(timeout.phase);
 
-    if (!timeoutMs || timeoutMs <= 0) return;
-
-    const timer = window.setTimeout(() => {
-      if (turnState === 'drawing') {
-        const source = pickRandomAutoDrawSource(room.discardPile.length);
-        handleDrawCard(source);
+    const tick = () => {
+      const info = getActiveTurnTimeout(room, activePlayer, {
+        isOnline,
+        isTowerMaster,
+        turnState,
+        showTransition,
+        offlinePhaseStartedAt: offlinePhaseStartedAtRef.current,
+      });
+      if (!info) {
+        setTurnSecondsLeft(null);
         return;
       }
+      setTurnSecondsLeft(getSecondsRemaining(info.startedAt, info.limitMs));
+    };
 
-      if (turnState === 'playing') {
+    tick();
+    const intervalId = window.setInterval(tick, 250);
+
+    let timeoutId: number | undefined;
+    if (!isOnline && activePlayer && !activePlayer.isBot && !showTransition) {
+      const remaining = timeout.startedAt + timeout.limitMs - Date.now();
+      timeoutId = window.setTimeout(() => {
+        const phase = getActiveTurnTimeout(room, activePlayer, {
+          isOnline,
+          isTowerMaster,
+          turnState,
+          showTransition,
+          offlinePhaseStartedAt: offlinePhaseStartedAtRef.current,
+        });
+        if (!phase) return;
+        if (phase.phase === 'draw') {
+          handleDrawCard(pickRandomAutoDrawSource(room.discardPile.length));
+          return;
+        }
         const choice = getAutoDiscardChoice(activePlayer);
         if (choice) {
           executeDiscard(choice.card, choice.skipPlayerId);
         }
-      }
-    }, timeoutMs);
+      }, Math.max(0, remaining));
+    }
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearInterval(intervalId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
   }, [
     activePlayer,
     isOnline,
-    room.currentTurnIndex,
-    room.discardPile.length,
-    room.roundNumber,
-    room.settings.discardTimeoutMs,
-    room.settings.drawTimeoutMs,
+    isTowerMaster,
     room.status,
+    room.currentTurnIndex,
+    room.roundNumber,
+    room.hasDrawnThisTurn,
+    room.currentTurnStartedAt,
+    room.stateVersion,
+    room.settings.drawTimeoutMs,
+    room.settings.discardTimeoutMs,
+    room.discardPile.length,
     showTransition,
     turnState,
   ]);
@@ -2048,6 +2134,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
       if (drawnCard) {
         playerHand.push(drawnCard);
+        setLastDrawnCardId(drawnCard.id);
       }
 
       updatedPlayers[prev.currentTurnIndex] = {
@@ -2059,10 +2146,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         ...prev,
         drawPile,
         discardPile,
-        players: updatedPlayers
+        players: updatedPlayers,
+        hasDrawnThisTurn: true,
+        currentTurnStartedAt: Date.now(),
       };
     });
 
+    offlinePhaseStartedAtRef.current = Date.now();
     setTurnState('playing');
     clearCardSelection();
   };
@@ -2083,6 +2173,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const executeDiscard = (card: Card, skipPlayerId: string | null) => {
+    setLastDrawnCardId(null);
+
     if (isOnline) {
       if (isActionPending) return;
       playSound('discard');
@@ -3019,13 +3111,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-2 hover:bg-surface-raised rounded-lg text-muted hover:text-secondary"
-            title={soundEnabled ? 'Mutar' : 'Ativar som'}
-          >
-            {soundEnabled ? <Volume2 className="w-5 h-5 text-accent" /> : <VolumeX className="w-5 h-5" />}
-          </button>
+          <VolumeControl
+            volume={masterVolume}
+            onChange={(volume) => onMasterVolumeChange?.(volume)}
+          />
           <button
             onClick={() => { playSound('click'); setIsRulesOpen(true); }}
             className="px-3 py-1.5 bg-surface-raised hover:bg-surface-muted rounded-lg text-xs font-medium text-secondary flex items-center gap-1.5 border border-default"
@@ -3274,6 +3363,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   {turnState === 'playing' && `Baixe seu ${floorWordLower}, bata cartas ou descarte para passar o turno.`}
                   {turnState === 'idle' && `Aguardando ${activePlayer.name}...`}
                 </p>
+
+                {turnSecondsLeft !== null && (
+                  <div
+                    className={`mt-1 flex items-center gap-1.5 text-xs font-semibold ${
+                      turnSecondsLeft <= 5 ? 'text-danger' : 'text-accent'
+                    }`}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full bg-current animate-pulse" />
+                    <span>
+                      {turnTimeoutPhase === 'draw' ? 'Tempo para comprar' : 'Tempo para descartar'}:{' '}
+                      {turnSecondsLeft}s
+                    </span>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -3797,7 +3900,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     disabled={!towerHandPick && !isMyTurn}
                     onClick={() => handleHandCardClick(card)}
                     className={`hand-fan__card playing-card text-left ${getPlayingCardShellClass(card)} ${isSelected ? 'playing-card--selected' : ''} ${
-                      isInGroup1 || isInGroup2 ? 'playing-card--in-group' : ''
+                      card.id === lastDrawnCardId ? 'playing-card--new-draw' : ''
+                    } ${isInGroup1 || isInGroup2 ? 'playing-card--in-group' : ''
                     } ${isHandPickEligible ? 'playing-card--hand-pick' : ''} ${
                       isHandPickBlocked ? 'playing-card--hand-pick-blocked' : ''
                     }`}

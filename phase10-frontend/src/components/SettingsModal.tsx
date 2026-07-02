@@ -12,8 +12,8 @@ type SettingsModalProps = {
   onClose: () => void;
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
-  soundEnabled: boolean;
-  onSoundChange: (enabled: boolean) => void;
+  masterVolume: number;
+  onMasterVolumeChange: (volume: number) => void;
   musicTrack: MusicTrack;
   onMusicTrackChange: (track: MusicTrack) => void;
   musicVolume: number;
@@ -32,8 +32,8 @@ export function SettingsModal({
   onClose,
   locale,
   onLocaleChange,
-  soundEnabled,
-  onSoundChange,
+  masterVolume,
+  onMasterVolumeChange,
   musicTrack,
   onMusicTrackChange,
   musicVolume,
@@ -88,26 +88,34 @@ export function SettingsModal({
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-4">
+          <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-secondary">
-              {soundEnabled ? (
+              {masterVolume > 0 ? (
                 <Volume2 className="w-4 h-4 text-accent" />
               ) : (
                 <VolumeX className="w-4 h-4 text-muted" />
               )}
               {t.settings.sound}
             </div>
-            <button
-              type="button"
-              onClick={() => onSoundChange(!soundEnabled)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                soundEnabled
-                  ? 'bg-accent-soft border-accent text-accent'
-                  : 'bg-surface-muted border-default text-muted'
-              }`}
-            >
-              {soundEnabled ? t.settings.soundOn : t.settings.soundOff}
-            </button>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
+                {t.settings.sound}
+              </span>
+              <div className="flex items-center gap-3 min-w-[180px]">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={Math.round(masterVolume * 100)}
+                  onChange={(e) => onMasterVolumeChange(Number(e.target.value) / 100)}
+                  className="w-full accent-(--accent)"
+                />
+                <span className="w-10 text-right text-xs font-semibold text-secondary">
+                  {Math.round(masterVolume * 100)}%
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3">

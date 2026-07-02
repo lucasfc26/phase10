@@ -122,6 +122,7 @@ export interface GameRoom {
   winnerId: string | null;
   hasDrawnThisTurn?: boolean;
   stateVersion?: number;
+  currentTurnStartedAt?: number;
   towerPowersDisabledRound?: number | null;
   lastTowerPowerPlayed?: Card | null;
   settings: {

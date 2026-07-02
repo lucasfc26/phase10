@@ -2,6 +2,7 @@ import type { Locale } from './i18n/types';
 
 const LOCALE_KEY = 'phase10-locale';
 const SOUND_KEY = 'phase10-sound';
+const MASTER_VOLUME_KEY = 'phase10-master-volume';
 const MUSIC_TRACK_KEY = 'phase10-music-track';
 const MUSIC_VOLUME_KEY = 'phase10-music-volume';
 const MUSIC_PLAYING_KEY = 'phase10-music-playing';
@@ -19,13 +20,31 @@ export function setStoredLocale(locale: Locale) {
 }
 
 export function getStoredSoundEnabled(): boolean {
-  const v = localStorage.getItem(SOUND_KEY);
-  if (v === 'false') return false;
-  return true;
+  return getStoredMasterVolume() > 0;
 }
 
 export function setStoredSoundEnabled(enabled: boolean) {
-  localStorage.setItem(SOUND_KEY, String(enabled));
+  setStoredMasterVolume(enabled ? 1 : 0);
+}
+
+export function getStoredMasterVolume(): number {
+  const stored = localStorage.getItem(MASTER_VOLUME_KEY);
+  if (stored !== null) {
+    const v = Number(stored);
+    if (Number.isFinite(v)) {
+      return Math.max(0, Math.min(1, v));
+    }
+  }
+
+  const legacy = localStorage.getItem(SOUND_KEY);
+  if (legacy === 'false') return 0;
+  return 1;
+}
+
+export function setStoredMasterVolume(volume: number) {
+  const clamped = Math.max(0, Math.min(1, volume));
+  localStorage.setItem(MASTER_VOLUME_KEY, String(clamped));
+  localStorage.setItem(SOUND_KEY, String(clamped > 0));
 }
 
 export function getStoredMusicTrack(): MusicTrack {

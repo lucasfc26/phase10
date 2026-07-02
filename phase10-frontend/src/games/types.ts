@@ -10,5 +10,6 @@ export interface GameBoardProps<T> {
   initialRoom: T;
   playerProfile: GamePlayerProfile;
   onExit: () => void;
-  initialSoundEnabled?: boolean;
+  masterVolume?: number;
+  onMasterVolumeChange?: (volume: number) => void;
 }
